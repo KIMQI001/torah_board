@@ -218,11 +218,11 @@ export function NodeMonitorModal({ node, trigger }: NodeMonitorModalProps) {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Upload Speed</span>
-                    <span className="font-bold">{currentNode.performance.bandwidthUp.toFixed(1)} Mbps</span>
+                    <span className="font-bold">{(currentNode.performance.bandwidthUp || 0).toFixed(1)} Mbps</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Download Speed</span>
-                    <span className="font-bold">{currentNode.performance.bandwidthDown.toFixed(1)} Mbps</span>
+                    <span className="font-bold">{(currentNode.performance.bandwidthDown || 0).toFixed(1)} Mbps</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Uptime</span>

@@ -63,8 +63,8 @@ export function AddNodeModal({ trigger, onNodeAdd }: AddNodeModalProps) {
           memoryUsage: Math.random() * 40 + 40,
           diskUsage: Math.random() * 60 + 20,
           networkLatency: Math.random() * 20 + 10,
-          uptime: 99.2,
-          errorsLast24h: Math.floor(Math.random() * 5)
+          bandwidthUp: Math.random() * 50 + 10,
+          bandwidthDown: Math.random() * 100 + 50
         }
       };
 

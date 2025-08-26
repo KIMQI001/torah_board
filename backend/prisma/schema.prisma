@@ -1,0 +1,131 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  walletAddress   String   @unique
+  publicKey       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastLogin       DateTime?
+  settings        String?  // JSON string for user preferences and settings
+  
+  // Relations
+  nodes           UserNode[]
+  roiCalculations ROICalculation[]
+  
+  @@map("users")
+}
+
+model DePINProject {
+  id                 String   @id @default(cuid())
+  name               String   @unique
+  category           String   // 'STORAGE', 'COMPUTING', 'WIRELESS', 'SENSORS'
+  description        String
+  blockchain         String
+  tokenSymbol        String
+  tokenPrice         Float    @default(0)
+  marketCap          String   @default("$0")
+  volume24h          String   @default("$0")
+  apy                String
+  status             String   @default("ACTIVE") // 'ACTIVE', 'INACTIVE', 'MAINTENANCE'
+  minInvestment      Float
+  roiPeriod          Int      // in months
+  geographicFocus    String   // JSON string array of countries/regions
+  riskLevel          String   // 'LOW', 'MEDIUM', 'HIGH'
+  hardwareRequirements String // JSON string array of hardware specs
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  // Relations
+  nodes              UserNode[]
+  roiCalculations    ROICalculation[]
+  
+  @@map("depin_projects")
+}
+
+model UserNode {
+  id            String   @id @default(cuid())
+  userId        String
+  projectId     String
+  nodeId        String   // User-defined node ID
+  type          String
+  capacity      String?
+  location      String?
+  monitorUrl    String?
+  status        String   @default("SYNCING") // 'ONLINE', 'OFFLINE', 'SYNCING', 'ERROR'
+  uptime        String   @default("0%")
+  earnings      String   @default("$0/day")
+  totalEarned   Float    @default(0)
+  startDate     DateTime @default(now())
+  hardware      String?  // JSON string of hardware specifications
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project       DePINProject @relation(fields: [projectId], references: [id])
+  performances  NodePerformance[]
+  
+  @@unique([userId, nodeId]) // Unique node ID per user
+  @@map("user_nodes")
+}
+
+model NodePerformance {
+  id             String   @id @default(cuid())
+  nodeId         String
+  cpuUsage       Float
+  memoryUsage    Float
+  diskUsage      Float
+  networkLatency Float
+  bandwidthUp    Float
+  bandwidthDown  Float
+  timestamp      DateTime @default(now())
+  
+  // Relations
+  node           UserNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  
+  @@map("node_performances")
+}
+
+model ROICalculation {
+  id                    String   @id @default(cuid())
+  userId                String
+  projectId             String
+  location              String
+  hardwareCost          Float
+  monthlyCost           Float
+  estimatedMonthlyReward Float
+  roiMonths             Float
+  annualROI             Float
+  riskFactors           String   // JSON string array
+  createdAt             DateTime @default(now())
+  
+  // Relations
+  user                  User     @relation(fields: [userId], references: [id])
+  project               DePINProject @relation(fields: [projectId], references: [id])
+  
+  @@map("roi_calculations")
+}
+
+model SystemNotification {
+  id          String   @id @default(cuid())
+  userId      String?  // null for system-wide notifications
+  type        String   // 'NODE_STATUS', 'EARNINGS_UPDATE', 'SYSTEM_ALERT', 'CAPACITY_UPDATE'
+  title       String
+  message     String
+  isRead      Boolean  @default(false)
+  data        String?  // JSON string for additional notification data
+  createdAt   DateTime @default(now())
+  
+  @@map("system_notifications")
+}

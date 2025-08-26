@@ -1,0 +1,229 @@
+import { Request, Response } from 'express';
+import { ResponseUtil } from '@/utils/response';
+import { SolanaUtil } from '@/utils/solana';
+import { JwtUtil } from '@/utils/jwt';
+import { Logger } from '@/utils/logger';
+import { prisma } from '@/services/database';
+import { WalletAuthRequest, AuthenticatedRequest } from '@/types';
+
+export class AuthController {
+  /**
+   * Generate authentication message for wallet signing
+   */
+  static async generateAuthMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const { walletAddress } = req.body;
+
+      if (!walletAddress || !SolanaUtil.isValidWalletAddress(walletAddress)) {
+        ResponseUtil.error(res, 'Invalid wallet address');
+        return;
+      }
+
+      const message = SolanaUtil.generateAuthMessage(walletAddress);
+
+      ResponseUtil.success(res, { 
+        message,
+        walletAddress 
+      }, 'Authentication message generated');
+
+    } catch (error) {
+      Logger.error('Error generating auth message', { error: error.message });
+      ResponseUtil.serverError(res);
+    }
+  }
+
+  /**
+   * Authenticate user with wallet signature
+   */
+  static async authenticate(req: Request, res: Response): Promise<void> {
+    try {
+      const { walletAddress, publicKey, signature, message } = req.body as WalletAuthRequest;
+
+      // Validate message timestamp (must be recent)
+      if (!SolanaUtil.isMessageRecent(message)) {
+        ResponseUtil.error(res, 'Authentication message is too old. Please generate a new one.');
+        return;
+      }
+
+      // Verify wallet signature (skip in development mode for testing)
+      let isValidSignature = true;
+      
+      if (process.env.NODE_ENV === 'production') {
+        isValidSignature = SolanaUtil.verifyWalletSignature(
+          walletAddress,
+          signature,
+          message
+        );
+      } else {
+        Logger.info('Skipping signature verification in development mode');
+      }
+
+      if (!isValidSignature) {
+        ResponseUtil.unauthorized(res, 'Invalid wallet signature');
+        return;
+      }
+
+      // Find or create user
+      let user = await prisma.user.findUnique({
+        where: { walletAddress }
+      });
+
+      if (!user) {
+        // Create new user
+        user = await prisma.user.create({
+          data: {
+            walletAddress,
+            publicKey,
+            lastLogin: new Date()
+          }
+        });
+
+        Logger.info('New user created', { 
+          userId: user.id, 
+          walletAddress 
+        });
+      } else {
+        // Update last login
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            lastLogin: new Date(),
+            publicKey // Update public key in case it changed
+          }
+        });
+
+        Logger.info('User logged in', { 
+          userId: user.id, 
+          walletAddress 
+        });
+      }
+
+      // Generate JWT token
+      const token = JwtUtil.sign({
+        userId: user.id,
+        walletAddress: user.walletAddress
+      });
+
+      // Get wallet balance
+      const balance = await SolanaUtil.getWalletBalance(walletAddress);
+
+      ResponseUtil.success(res, {
+        token,
+        user: {
+          id: user.id,
+          walletAddress: user.walletAddress,
+          publicKey: user.publicKey,
+          balance,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin
+        }
+      }, 'Authentication successful');
+
+    } catch (error) {
+      Logger.error('Authentication error', { error: error.message });
+      ResponseUtil.serverError(res, 'Authentication failed');
+    }
+  }
+
+  /**
+   * Verify current authentication status
+   */
+  static async verify(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        ResponseUtil.unauthorized(res);
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: {
+          id: true,
+          walletAddress: true,
+          publicKey: true,
+          createdAt: true,
+          lastLogin: true,
+          settings: true
+        }
+      });
+
+      if (!user) {
+        ResponseUtil.unauthorized(res, 'User not found');
+        return;
+      }
+
+      // Get current wallet balance
+      const balance = await SolanaUtil.getWalletBalance(user.walletAddress);
+
+      ResponseUtil.success(res, {
+        user: {
+          ...user,
+          balance
+        }
+      }, 'Token is valid');
+
+    } catch (error) {
+      Logger.error('Token verification error', { error: error.message });
+      ResponseUtil.serverError(res);
+    }
+  }
+
+  /**
+   * Update user settings
+   */
+  static async updateSettings(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        ResponseUtil.unauthorized(res);
+        return;
+      }
+
+      const { settings } = req.body;
+
+      const updatedUser = await prisma.user.update({
+        where: { id: req.user.id },
+        data: { settings },
+        select: {
+          id: true,
+          walletAddress: true,
+          settings: true
+        }
+      });
+
+      Logger.info('User settings updated', { 
+        userId: req.user.id, 
+        settings 
+      });
+
+      ResponseUtil.success(res, updatedUser, 'Settings updated successfully');
+
+    } catch (error) {
+      Logger.error('Error updating user settings', { error: error.message });
+      ResponseUtil.serverError(res);
+    }
+  }
+
+  /**
+   * Refresh JWT token
+   */
+  static async refreshToken(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        ResponseUtil.unauthorized(res);
+        return;
+      }
+
+      // Generate new token
+      const token = JwtUtil.sign({
+        userId: req.user.id,
+        walletAddress: req.user.walletAddress
+      });
+
+      ResponseUtil.success(res, { token }, 'Token refreshed successfully');
+
+    } catch (error) {
+      Logger.error('Token refresh error', { error: error.message });
+      ResponseUtil.serverError(res);
+    }
+  }
+}

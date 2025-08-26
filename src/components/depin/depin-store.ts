@@ -46,6 +46,7 @@ export interface MyNode {
   totalEarned: number;
   hardware: HardwareSpec[];
   performance: NodePerformance;
+  monitorUrl?: string;  // 可选的监控链接
 }
 
 export interface NodePerformance {
@@ -288,8 +289,34 @@ export class DePINStore {
       const storedProjects = localStorage.getItem('depin-projects');
       const storedNodes = localStorage.getItem('depin-nodes');
       
-      this.projects = storedProjects ? JSON.parse(storedProjects) : DEFAULT_DEPIN_PROJECTS;
-      this.myNodes = storedNodes ? JSON.parse(storedNodes) : DEFAULT_MY_NODES;
+      if (storedProjects) {
+        const projects = JSON.parse(storedProjects);
+        // 去重：基于项目名称去重
+        const uniqueProjects = projects.filter((project: DePINProject, index: number, arr: DePINProject[]) => 
+          arr.findIndex(p => p.name === project.name) === index
+        );
+        this.projects = uniqueProjects;
+      } else {
+        this.projects = DEFAULT_DEPIN_PROJECTS;
+      }
+      
+      if (storedNodes) {
+        const nodes = JSON.parse(storedNodes);
+        // Migrate old data format - ensure all nodes have proper performance structure
+        this.myNodes = nodes.map((node: any) => ({
+          ...node,
+          performance: {
+            cpuUsage: node.performance?.cpuUsage || 0,
+            memoryUsage: node.performance?.memoryUsage || 0,
+            diskUsage: node.performance?.diskUsage || 0,
+            networkLatency: node.performance?.networkLatency || 50,
+            bandwidthUp: node.performance?.bandwidthUp || Math.random() * 50 + 10,
+            bandwidthDown: node.performance?.bandwidthDown || Math.random() * 100 + 50
+          }
+        }));
+      } else {
+        this.myNodes = DEFAULT_MY_NODES;
+      }
       
       this.isInitialized = true;
     } catch (error) {
@@ -319,6 +346,13 @@ export class DePINStore {
   }
 
   addProject(projectData: Omit<DePINProject, 'id'>): DePINProject {
+    // 检查是否已存在相同名称的项目
+    const existingProject = this.projects.find(p => p.name === projectData.name);
+    if (existingProject) {
+      console.warn('Project with same name already exists:', projectData.name);
+      return existingProject;
+    }
+
     const newProject: DePINProject = {
       ...projectData,
       id: `project_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -368,22 +402,12 @@ export class DePINStore {
     return this.myNodes.find(n => n.id === id);
   }
 
-  addNode(node: MyNode): void {
-    this.myNodes.push(node);
-    this.saveData();
-  }
-
   updateNode(id: string, updates: Partial<MyNode>): void {
     const index = this.myNodes.findIndex(n => n.id === id);
     if (index !== -1) {
       this.myNodes[index] = { ...this.myNodes[index], ...updates };
       this.saveData();
     }
-  }
-
-  removeNode(id: string): void {
-    this.myNodes = this.myNodes.filter(n => n.id !== id);
-    this.saveData();
   }
 
   calculateROI(projectId: string, location: string, customCost?: number): ROICalculation {

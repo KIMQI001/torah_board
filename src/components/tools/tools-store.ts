@@ -572,7 +572,7 @@ export function ToolsProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // Save data to localStorage
-  const saveToStorage = (data: any) => {
+  const saveToStorage = (data: Record<string, unknown>) => {
     try {
       const currentData = JSON.parse(localStorage.getItem('tools-storage') || '{}')
       const newData = { ...currentData, ...data }
