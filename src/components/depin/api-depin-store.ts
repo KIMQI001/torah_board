@@ -381,6 +381,24 @@ class ApiDePINStoreClass {
     }
   }
 
+  async deleteProject(projectId: string): Promise<boolean> {
+    if (!this.state.isAuthenticated) return false;
+
+    try {
+      const response = await projectsApi.deleteProject(projectId);
+      if (response.success) {
+        // Remove from local state
+        this.state.projects = this.state.projects.filter(project => project.id !== projectId);
+        this.notifyListeners();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to delete project:', error);
+      return false;
+    }
+  }
+
   async refreshNodes(): Promise<void> {
     await this.loadNodes();
   }

@@ -36,6 +36,7 @@ export interface DePINProject {
   roiPeriod: number;
   geographicFocus: string;
   riskLevel: string;
+  websiteUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -247,6 +248,38 @@ export const projectsApi = {
 
   async getProject(id: string) {
     return apiRequest<DePINProject>(`/projects/${id}`);
+  },
+
+  async createProject(data: {
+    name: string;
+    category: 'STORAGE' | 'COMPUTING' | 'WIRELESS' | 'SENSORS';
+    description: string;
+    blockchain: string;
+    tokenSymbol: string;
+    tokenPrice?: number;
+    apy: string;
+    minInvestment: number;
+    roiPeriod: number;
+    geographicFocus: string[];
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    websiteUrl?: string;
+    hardwareRequirements: Array<{
+      type: string;
+      requirement: string;
+      cost: number;
+      powerConsumption: number;
+    }>;
+  }) {
+    return apiRequest<DePINProject>('/projects', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteProject(id: string) {
+    return apiRequest<{ success: boolean; message: string }>(`/projects/${id}`, {
+      method: 'DELETE',
+    });
   }
 };
 

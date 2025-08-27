@@ -8,8 +8,9 @@ import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/contexts/AuthContext";
 import { WalletButton } from "@/components/wallet/WalletButton";
 import { apiDePINStore, type ApiDePINStore } from '@/components/depin/api-depin-store';
-import { type DePINProject, type UserNode } from '@/lib/api';
+import { type DePINProject, type UserNode, projectsApi } from '@/lib/api';
 import { CustomModal, AddNodeForm } from '@/components/depin/custom-modal';
+import { AddProjectModal } from '@/components/depin/AddProjectModal';
 
 export default function DePINPage() {
   const { t } = useLanguage();
@@ -17,6 +18,7 @@ export default function DePINPage() {
   const [storeState, setStoreState] = useState<ApiDePINStore>(apiDePINStore.getState());
   const [notifications, setNotifications] = useState<string[]>([]);
   const [showAddNodeModal, setShowAddNodeModal] = useState(false);
+  const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClientReady, setIsClientReady] = useState(false);
 
@@ -84,6 +86,44 @@ export default function DePINPage() {
     }
   };
 
+  const handleAddProjectSubmit = async (projectData: any) => {
+    // 检查用户是否已登录
+    if (!isAuthenticated) {
+      setNotifications(prev => [...prev, '请先登录后再创建项目']);
+      return { success: false, message: '请先登录后再创建项目' };
+    }
+
+    try {
+      const response = await projectsApi.createProject(projectData);
+      
+      if (response.success) {
+        setNotifications(prev => [...prev, '项目创建成功！']);
+        // Refresh projects list
+        await apiDePINStore.refreshProjects();
+        return { success: true, message: '项目创建成功' };
+      } else {
+        const errorMsg = response.error || '项目创建失败';
+        setNotifications(prev => [...prev, errorMsg]);
+        return { success: false, message: errorMsg };
+      }
+    } catch (error: any) {
+      console.error('Failed to create project:', error);
+      let errorMessage = '项目创建失败：网络错误';
+      
+      // 提供更具体的错误信息
+      if (error.message?.includes('No token provided')) {
+        errorMessage = '认证失效，请重新登录';
+      } else if (error.message?.includes('fetch')) {
+        errorMessage = '网络连接失败，请检查网络';
+      } else if (error.message) {
+        errorMessage = `项目创建失败：${error.message}`;
+      }
+      
+      setNotifications(prev => [...prev, errorMessage]);
+      return { success: false, message: errorMessage };
+    }
+  };
+
   const handleAddNodeSubmit = async (formData: Record<string, string>) => {
     setIsSubmitting(true);
     try {
@@ -131,6 +171,17 @@ export default function DePINPage() {
         setNotifications(prev => [...prev, `节点 "${nodeName}" 已删除`]);
       } else {
         setNotifications(prev => [...prev, `删除节点 "${nodeName}" 失败`]);
+      }
+    }
+  };
+
+  const handleDeleteProject = async (projectId: string, projectName: string) => {
+    if (confirm(`确定要删除项目 "${projectName}" 吗？此操作不可撤销。`)) {
+      const success = await apiDePINStore.deleteProject(projectId);
+      if (success) {
+        setNotifications(prev => [...prev, `项目 "${projectName}" 已删除`]);
+      } else {
+        setNotifications(prev => [...prev, `删除项目 "${projectName}" 失败`]);
       }
     }
   };
@@ -327,21 +378,20 @@ export default function DePINPage() {
                   Leading decentralized infrastructure networks
                 </CardDescription>
               </div>
-              <Button 
-                size="sm" 
-                variant="outline" 
-                onClick={() => {
-                  // TODO: Implement add project functionality
-                  setNotifications(prev => [...prev, 'Add Project functionality coming soon!']);
-                }}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                添加项目
-              </Button>
+              {isAuthenticated && (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => setShowAddProjectModal(true)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  添加项目
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[800px] overflow-y-auto pr-2">
               {storeState.projects
                 .sort((a, b) => {
                   // 将 Filecoin 排在第一位，Hivemapper 排在第二位
@@ -386,19 +436,31 @@ export default function DePINPage() {
                 return (
                   <div key={project.id} className="border rounded-lg p-4">
                     <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center space-x-3">
-                        <div className="p-2 bg-muted rounded-lg">
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                        <div className="p-2 bg-muted rounded-lg flex-shrink-0">
                           <IconComponent className="h-5 w-5" />
                         </div>
-                        <div>
+                        <div className="flex-1 min-w-0">
                           <h3 className="font-semibold">{project.name}</h3>
-                          <p className="text-sm text-muted-foreground">{project.description}</p>
+                          <p className="text-sm text-muted-foreground break-words overflow-hidden">{project.description}</p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-green-500">
-                          {dailyEarnings.toFixed(2)} {project.tokenSymbol}/day
-                        </p>
+                      <div className="flex items-center space-x-2">
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-green-500">
+                            {dailyEarnings.toFixed(2)} {project.tokenSymbol}/day
+                          </p>
+                        </div>
+                        {isAuthenticated && (
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            onClick={() => handleDeleteProject(project.id, project.name)}
+                            className="text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 p-1 h-8 w-8"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
 
@@ -426,7 +488,10 @@ export default function DePINPage() {
                           size="sm" 
                           variant="outline"
                           onClick={() => {
-                            const details = `项目详情：
+                            if (project.websiteUrl) {
+                              window.open(project.websiteUrl, '_blank');
+                            } else {
+                              const details = `项目详情：
 名称: ${project.name}
 类别: ${project.category}
 描述: ${project.description}
@@ -438,9 +503,11 @@ APY: ${project.apy}
 最小投资: $${project.minInvestment}
 投资回收期: ${project.roiPeriod}个月
 风险等级: ${project.riskLevel}`;
-                            alert(details);
+                              alert(details);
+                            }
                           }}
                         >
+                          <ExternalLink className="h-3 w-3 mr-1" />
                           查看详情
                         </Button>
                       </div>
@@ -710,6 +777,12 @@ CPU使用率: ${node.performance.cpuUsage.toFixed(1)}%
           }))}
         />
       </CustomModal>
+
+      <AddProjectModal
+        isOpen={showAddProjectModal}
+        onClose={() => setShowAddProjectModal(false)}
+        onSubmit={handleAddProjectSubmit}
+      />
     </div>
   );
 }
