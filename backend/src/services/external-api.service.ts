@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Logger } from '@/utils/logger';
 import { prisma } from '@/services/database';
+import { WebSocketService } from '@/services/websocket.service';
 
 interface FilecoinPowerStats {
   height: number;
@@ -23,10 +24,130 @@ interface HeliumHotspotInfo {
   };
 }
 
+interface FilecoinBalanceStats {
+  height: number;
+  timestamp: number;
+  balance: string;
+  availableBalance: string;
+  sectorPledgeBalance: string;
+  vestingFunds: string;
+}
+
+interface FilecoinMiningStats {
+  rawBytePowerGrowth: string;
+  qualityAdjPowerGrowth: string;
+  rawBytePowerDelta: string;
+  qualityAdjPowerDelta: string;
+  blocksMined: number;
+  weightedBlocksMined: number;
+  totalRewards: string;
+  networkTotalRewards: string;
+  equivalentMiners: number;
+  rewardPerByte: number;
+  luckyValue: number;
+  durationPercentage: number;
+}
+
 export class ExternalApiService {
   private static readonly FILECOIN_API_BASE = 'https://filfox.info/api/v1';
   private static readonly HELIUM_API_BASE = 'https://api.helium.io/v1';
-  private static readonly REQUEST_TIMEOUT = 10000; // 10 seconds
+  private static readonly REQUEST_TIMEOUT = 5000; // Reduced to 5 seconds
+  private static readonly MAX_RETRIES = 2; // Add retry mechanism
+
+  /**
+   * Retry mechanism for API calls
+   */
+  private static async makeRequestWithRetry<T>(
+    requestFn: () => Promise<T>,
+    operation: string,
+    maxRetries: number = this.MAX_RETRIES
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        return await requestFn();
+      } catch (error) {
+        lastError = error;
+        Logger.warn(`API request failed (attempt ${attempt}/${maxRetries + 1})`, {
+          operation,
+          error: error.message,
+          status: error.response?.status
+        });
+        
+        // If it's the last attempt, throw the error
+        if (attempt === maxRetries + 1) {
+          throw lastError;
+        }
+        
+        // Wait before retrying (exponential backoff)
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 3000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    throw lastError;
+  }
+
+  /**
+   * Query Filecoin miner earnings
+   */
+  static async queryFilecoinMinerEarnings(minerId: string, duration: '24h' | '7d' | '30d' = '24h'): Promise<{ daily: number; total: number } | null> {
+    try {
+      Logger.info('Querying Filecoin miner earnings', { minerId, duration });
+
+      const response = await this.makeRequestWithRetry(
+        () => axios.get(
+          `${this.FILECOIN_API_BASE}/address/${minerId}/mining-stats`,
+          { 
+            timeout: this.REQUEST_TIMEOUT,
+            params: { duration }
+          }
+        ),
+        `Filecoin earnings query for ${minerId}`
+      );
+
+      if (!response.data) {
+        Logger.warn('No mining stats found for Filecoin miner', { minerId });
+        return null;
+      }
+
+      const stats = response.data as FilecoinMiningStats;
+      
+      // Convert attoFIL to FIL (1 FIL = 10^18 attoFIL)
+      const totalRewards = BigInt(stats.totalRewards || '0');
+      const filRewards = Number(totalRewards) / 1e18;
+      
+      // Calculate daily average based on duration
+      let dailyRewards = filRewards;
+      if (duration === '7d') {
+        dailyRewards = filRewards / 7;
+      } else if (duration === '30d') {
+        dailyRewards = filRewards / 30;
+      }
+      
+      Logger.info('Filecoin miner earnings retrieved', { 
+        minerId, 
+        duration,
+        totalRewards: stats.totalRewards,
+        filRewards: filRewards.toFixed(6),
+        dailyRewards: dailyRewards.toFixed(6)
+      });
+
+      return {
+        daily: dailyRewards,
+        total: filRewards
+      };
+
+    } catch (error) {
+      Logger.error('Error querying Filecoin miner earnings', {
+        error: error.message,
+        minerId,
+        status: error.response?.status
+      });
+      return null;
+    }
+  }
 
   /**
    * Query Filecoin miner power/capacity
@@ -35,9 +156,12 @@ export class ExternalApiService {
     try {
       Logger.info('Querying Filecoin miner capacity', { minerId });
 
-      const response = await axios.get(
-        `${this.FILECOIN_API_BASE}/address/${minerId}/power-stats`,
-        { timeout: this.REQUEST_TIMEOUT }
+      const response = await this.makeRequestWithRetry(
+        () => axios.get(
+          `${this.FILECOIN_API_BASE}/address/${minerId}/power-stats`,
+          { timeout: this.REQUEST_TIMEOUT }
+        ),
+        `Filecoin capacity query for ${minerId}`
       );
 
       if (!response.data || !Array.isArray(response.data) || response.data.length === 0) {
@@ -47,23 +171,35 @@ export class ExternalApiService {
 
       // Get the latest power stats
       const latestStats = response.data[response.data.length - 1] as FilecoinPowerStats;
-      const rawBytePower = BigInt(latestStats.rawBytePower);
+      const qualityAdjPower = BigInt(latestStats.qualityAdjPower);
 
-      if (rawBytePower <= 0) {
-        Logger.warn('Filecoin miner has no power', { minerId, rawBytePower: latestStats.rawBytePower });
+      if (qualityAdjPower <= 0) {
+        Logger.warn('Filecoin miner has no effective power', { minerId, qualityAdjPower: latestStats.qualityAdjPower });
         return '0 TiB';
       }
 
       // Convert bytes to TiB (1 TiB = 1099511627776 bytes)
-      const tib = Number(rawBytePower) / 1099511627776;
+      const tib = Number(qualityAdjPower) / 1099511627776;
+      
+      // Format as PiB if >= 1000 TiB, otherwise TiB
+      let capacityDisplay: string;
+      if (tib >= 1000) {
+        const pib = tib / 1024;
+        capacityDisplay = `${pib.toFixed(2)} PiB`;
+      } else {
+        capacityDisplay = `${tib.toFixed(2)} TiB`;
+      }
       
       Logger.info('Filecoin miner capacity retrieved', { 
         minerId, 
+        qualityAdjPower: latestStats.qualityAdjPower,
         rawBytePower: latestStats.rawBytePower,
-        tib: tib.toFixed(2)
+        tib: tib.toFixed(2),
+        capacityDisplay,
+        calculationDetails: `${latestStats.qualityAdjPower} bytes = ${capacityDisplay}`
       });
 
-      return `${tib.toFixed(2)} TiB`;
+      return capacityDisplay;
 
     } catch (error) {
       Logger.error('Error querying Filecoin miner capacity', {
@@ -87,9 +223,12 @@ export class ExternalApiService {
     try {
       Logger.info('Querying Helium hotspot info', { hotspotAddress });
 
-      const response = await axios.get(
-        `${this.HELIUM_API_BASE}/hotspots/${hotspotAddress}`,
-        { timeout: this.REQUEST_TIMEOUT }
+      const response = await this.makeRequestWithRetry(
+        () => axios.get(
+          `${this.HELIUM_API_BASE}/hotspots/${hotspotAddress}`,
+          { timeout: this.REQUEST_TIMEOUT }
+        ),
+        `Helium hotspot query for ${hotspotAddress}`
       );
 
       const hotspot = response.data.data as HeliumHotspotInfo;
@@ -150,8 +289,8 @@ export class ExternalApiService {
       // For other projects, simulate capacity query
       Logger.info('Simulating capacity query for unknown project', { projectName, nodeId });
       
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+      // Simulate realistic API delay
+      await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 700));
       
       // Generate mock capacity based on project type
       let mockCapacity: string;
@@ -198,7 +337,7 @@ export class ExternalApiService {
     try {
       Logger.info('Starting batch node capacity update', { userId });
 
-      // Find nodes without capacity
+      // Find nodes without capacity OR Filecoin nodes (for earnings update)
       const where: any = {
         OR: [
           { capacity: null },
@@ -211,7 +350,8 @@ export class ExternalApiService {
         where.userId = userId;
       }
 
-      const nodes = await prisma.userNode.findMany({
+      // Get nodes without capacity
+      const capacityNodes = await prisma.userNode.findMany({
         where,
         include: {
           project: {
@@ -221,10 +361,37 @@ export class ExternalApiService {
             }
           }
         },
-        take: 50 // Limit batch size to prevent overwhelming external APIs
+        take: 25 // Limit batch size
       });
 
-      Logger.info(`Found ${nodes.length} nodes to update capacities`);
+      // Also get all Filecoin nodes for earnings update, regardless of capacity status
+      const filecoinNodes = await prisma.userNode.findMany({
+        where: {
+          ...filecoinWhere,
+          project: {
+            name: {
+              contains: 'Filecoin'
+            }
+          }
+        },
+        include: {
+          project: {
+            select: {
+              name: true,
+              blockchain: true
+            }
+          }
+        }
+      });
+
+      // Combine and deduplicate nodes
+      const allNodesMap = new Map();
+      [...capacityNodes, ...filecoinNodes].forEach(node => {
+        allNodesMap.set(node.id, node);
+      });
+      const nodes = Array.from(allNodesMap.values());
+
+      Logger.info(`Found ${nodes.length} nodes to update (${capacityNodes.length} for capacity, ${filecoinNodes.length} Filecoin nodes for earnings)`);
 
       const results = [];
       let updated = 0;
@@ -247,6 +414,25 @@ export class ExternalApiService {
             
             if (location && !node.location) {
               updateData.location = location;
+            }
+
+            // Query earnings for Filecoin miners and set monitor URL
+            if (node.project.name.toLowerCase().includes('filecoin')) {
+              // Set monitor URL if not already set
+              if (!node.monitorUrl && node.nodeId.startsWith('f0')) {
+                updateData.monitorUrl = `https://filfox.info/zh/address/${node.nodeId}`;
+              }
+              
+              const earnings = await this.queryFilecoinMinerEarnings(node.nodeId, '24h');
+              if (earnings) {
+                updateData.earnings = `${earnings.daily.toFixed(2)} FIL/day`;
+                updateData.totalEarned = (node.totalEarned || 0) + earnings.daily;
+                Logger.info('Updated Filecoin miner earnings in batch', {
+                  nodeId: node.nodeId,
+                  dailyEarnings: earnings.daily.toFixed(6),
+                  totalEarnings: earnings.total.toFixed(6)
+                });
+              }
             }
 
             await prisma.userNode.update({
@@ -275,8 +461,8 @@ export class ExternalApiService {
             failed++;
           }
 
-          // Add delay between requests to be respectful to APIs
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Reduced delay between requests for better performance
+          await new Promise(resolve => setTimeout(resolve, 200));
 
         } catch (error) {
           Logger.error('Failed to update node capacity', {
@@ -350,6 +536,25 @@ export class ExternalApiService {
       if (location && !node.location) {
         updateData.location = location;
       }
+      
+      // Query earnings for Filecoin miners and set monitor URL
+      if (node.project.name.toLowerCase().includes('filecoin')) {
+        // Set monitor URL if not already set
+        if (!node.monitorUrl && node.nodeId.startsWith('f0')) {
+          updateData.monitorUrl = `https://filfox.info/zh/address/${node.nodeId}`;
+        }
+        
+        const earnings = await this.queryFilecoinMinerEarnings(node.nodeId, '24h');
+        if (earnings) {
+          updateData.earnings = `${earnings.daily.toFixed(2)} FIL/day`;
+          updateData.totalEarned = (node.totalEarned || 0) + earnings.daily;
+          Logger.info('Updated Filecoin miner earnings', {
+            nodeId: node.nodeId,
+            dailyEarnings: earnings.daily.toFixed(6),
+            totalEarnings: earnings.total.toFixed(6)
+          });
+        }
+      }
 
       await prisma.userNode.update({
         where: { id: nodeId },
@@ -361,6 +566,18 @@ export class ExternalApiService {
         capacity,
         userId 
       });
+
+      // Send WebSocket notification for real-time update
+      WebSocketService.notifyCapacityUpdate(userId, node.nodeId, capacity);
+      
+      // Send earnings update if available
+      if (updateData.earnings !== undefined) {
+        WebSocketService.notifyEarningsUpdate(userId, {
+          nodeId: node.nodeId,
+          dailyEarnings: updateData.earnings,
+          totalEarned: updateData.totalEarned
+        });
+      }
 
       return true;
 

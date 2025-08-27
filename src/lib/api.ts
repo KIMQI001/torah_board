@@ -1,7 +1,7 @@
 // API configuration and service functions for DePIN backend
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5001';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002/api/v1';
+export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5002';
 
 // Types for API responses
 export interface ApiResponse<T> {
@@ -145,13 +145,15 @@ let authToken: string | null = null;
 
 export const setAuthToken = (token: string) => {
   authToken = token;
-  localStorage.setItem('depin_auth_token', token);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('auth_token', token);
+  }
 };
 
 export const getAuthToken = (): string | null => {
   if (authToken) return authToken;
   if (typeof window !== 'undefined') {
-    authToken = localStorage.getItem('depin_auth_token');
+    authToken = localStorage.getItem('auth_token');
   }
   return authToken;
 };
@@ -159,7 +161,7 @@ export const getAuthToken = (): string | null => {
 export const clearAuthToken = () => {
   authToken = null;
   if (typeof window !== 'undefined') {
-    localStorage.removeItem('depin_auth_token');
+    localStorage.removeItem('auth_token');
   }
 };
 
@@ -181,6 +183,7 @@ async function apiRequest<T>(
   };
 
   try {
+    console.log('API请求:', { url, config });
     const response = await fetch(url, config);
     
     if (!response.ok) {
@@ -188,9 +191,10 @@ async function apiRequest<T>(
     }
     
     const data = await response.json();
+    console.log('API响应:', data);
     return data;
   } catch (error) {
-    console.error('API request failed:', error);
+    console.error('API请求失败:', { url, error: error.message });
     throw error;
   }
 }
@@ -213,6 +217,19 @@ export const authApi = {
 
   async verify() {
     return apiRequest<{ user: AuthResponse['user'] }>('/auth/verify');
+  },
+
+  async refreshToken() {
+    return apiRequest<{ token: string }>('/auth/refresh', {
+      method: 'POST',
+    });
+  },
+
+  async updateSettings(settings: any) {
+    return apiRequest<{ user: AuthResponse['user'] }>('/auth/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
   }
 };
 
@@ -235,7 +252,7 @@ export const projectsApi = {
 
 // Nodes API
 export const nodesApi = {
-  async getNodes(page = 1, limit = 20, status?: string, projectId?: string) {
+  async getNodes(page = 1, limit = 100, status?: string, projectId?: string) {
     const params = new URLSearchParams({
       page: page.toString(),
       limit: limit.toString(),
@@ -373,6 +390,22 @@ export const dashboardApi = {
     });
   },
 
+  async getEarnings(period: '7d' | '30d' | '90d' | '1y' = '30d') {
+    return apiRequest<{
+      period: string;
+      totalEarnings: number;
+      averageDailyEarnings: number;
+      topEarningProject: string;
+      growthPercentage: number;
+      projectedMonthlyEarnings: number;
+      breakdown: Array<{
+        projectName: string;
+        earnings: number;
+        percentage: number;
+      }>;
+    }>(`/dashboard/earnings?period=${period}`);
+  },
+
   async getSystemHealth() {
     return apiRequest<{
       database: string;
@@ -479,11 +512,8 @@ export class DePINWebSocket {
       return;
     }
 
-    // Skip WebSocket connection in development if not available
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Skipping WebSocket connection in development mode');
-      return;
-    }
+    // Enable WebSocket connection in development mode too
+    console.log('Attempting WebSocket connection to:', WS_URL);
 
     const wsUrl = `${WS_URL}?token=${this.token}`;
     
@@ -507,10 +537,8 @@ export class DePINWebSocket {
       this.ws.onclose = () => {
         console.log('WebSocket disconnected');
         this.emit('disconnected', {});
-        // Don't auto-reconnect in development
-        if (process.env.NODE_ENV !== 'development') {
-          this.scheduleReconnect();
-        }
+        // Auto-reconnect in both development and production
+        this.scheduleReconnect();
       };
       
       this.ws.onerror = (error) => {

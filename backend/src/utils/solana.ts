@@ -73,16 +73,23 @@ export class SolanaUtil {
   }
 
   /**
-   * Get SOL balance for wallet
+   * Get SOL balance for wallet with timeout
    */
   static async getWalletBalance(walletAddress: string): Promise<number> {
     try {
       const publicKey = new PublicKey(walletAddress);
-      const balance = await this.getConnection().getBalance(publicKey);
+      
+      // 添加5秒超时机制
+      const balancePromise = this.getConnection().getBalance(publicKey);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Balance fetch timeout')), 5000);
+      });
+      
+      const balance = await Promise.race([balancePromise, timeoutPromise]);
       return balance / 1e9; // Convert lamports to SOL
     } catch (error) {
       Logger.error('Error getting wallet balance', { 
-        error: error.message, 
+        error: (error as Error).message, 
         walletAddress 
       });
       return 0;

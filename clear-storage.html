@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear localStorage</title>
+</head>
+<body>
+    <h1>清除 localStorage</h1>
+    <button onclick="clearStorage()">清除存储</button>
+    <div id="status"></div>
+
+    <script>
+        function clearStorage() {
+            try {
+                // 清除所有 localStorage
+                localStorage.clear();
+                
+                // 特别清除可能有问题的钱包相关键
+                const walletKeys = ['walletName', 'walletAdapter', 'wallet-name'];
+                walletKeys.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+                
+                document.getElementById('status').innerHTML = '✅ localStorage 已清除！请关闭此页面并刷新主应用。';
+                
+                // 3秒后自动关闭
+                setTimeout(() => {
+                    window.close();
+                }, 3000);
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ 清除失败: ' + error.message;
+            }
+        }
+        
+        // 页面加载时自动清除
+        window.onload = () => {
+            clearStorage();
+        }
+    </script>
+</body>
+</html>

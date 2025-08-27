@@ -15,6 +15,21 @@ import {
 } from '@/lib/api';
 import { walletUtils, type WalletConnection } from '@/lib/wallet';
 
+// 收益数据类型定义
+export interface EarningsData {
+  period: string;
+  totalEarnings: number;
+  averageDailyEarnings: number;
+  topEarningProject: string;
+  growthPercentage: number;
+  projectedMonthlyEarnings: number;
+  breakdown: Array<{
+    projectName: string;
+    earnings: number;
+    percentage: number;
+  }>;
+}
+
 export interface ApiDePINStore {
   // Authentication state
   isAuthenticated: boolean;
@@ -24,12 +39,14 @@ export interface ApiDePINStore {
   projects: DePINProject[];
   nodes: UserNode[];
   dashboardStats: DashboardStats | null;
+  earnings: EarningsData | null;
   
   // Loading states
   loading: {
     projects: boolean;
     nodes: boolean;
     dashboard: boolean;
+    earnings: boolean;
     auth: boolean;
   };
   
@@ -38,6 +55,7 @@ export interface ApiDePINStore {
     projects: string | null;
     nodes: string | null;
     dashboard: string | null;
+    earnings: string | null;
     auth: string | null;
   };
   
@@ -52,16 +70,19 @@ class ApiDePINStoreClass {
     projects: [],
     nodes: [],
     dashboardStats: null,
+    earnings: null,
     loading: {
       projects: false,
       nodes: false,
       dashboard: false,
+      earnings: false,
       auth: false
     },
     errors: {
       projects: null,
       nodes: null,
       dashboard: null,
+      earnings: null,
       auth: null
     },
     listeners: new Set()
@@ -186,7 +207,8 @@ class ApiDePINStoreClass {
     await Promise.all([
       this.loadProjects(),
       this.loadNodes(),
-      this.loadDashboardStats()
+      this.loadDashboardStats(),
+      this.loadEarnings()
     ]);
   }
 
@@ -279,6 +301,26 @@ class ApiDePINStoreClass {
     }
   }
 
+  async loadEarnings(period: '7d' | '30d' | '90d' | '1y' = '30d'): Promise<void> {
+    if (!this.state.isAuthenticated) return;
+    
+    try {
+      this.setLoading('earnings', true);
+      this.setError('earnings', null);
+      
+      const response = await dashboardApi.getEarnings(period);
+      if (response.success) {
+        this.state.earnings = response.data;
+        this.notifyListeners();
+      }
+    } catch (error) {
+      console.error('Failed to load earnings:', error);
+      this.setError('earnings', 'Failed to load earnings');
+    } finally {
+      this.setLoading('earnings', false);
+    }
+  }
+
   async createNodes(data: {
     nodeIds: string[];
     projectId: string;
@@ -349,6 +391,35 @@ class ApiDePINStoreClass {
 
   async refreshDashboard(): Promise<void> {
     await this.loadDashboardStats();
+  }
+
+  async refreshEarnings(): Promise<void> {
+    await this.loadEarnings();
+  }
+
+  async refreshFilecoinEarnings(): Promise<void> {
+    // 专门刷新 Filecoin 相关的数据
+    try {
+      // 首先触发容量和收益更新
+      await this.triggerCapacityUpdate();
+      
+      // 等待2秒后再刷新数据，确保后端处理完成
+      setTimeout(async () => {
+        await Promise.all([
+          this.loadNodes(), // 刷新节点数据（包含收益信息）
+          this.loadEarnings(), // 刷新收益摘要
+          this.loadDashboardStats() // 刷新仪表板统计
+        ]);
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to refresh Filecoin earnings:', error);
+      // 即使触发更新失败，也要刷新数据
+      await Promise.all([
+        this.loadNodes(),
+        this.loadEarnings(),
+        this.loadDashboardStats()
+      ]);
+    }
   }
 
   async refreshAll(): Promise<void> {

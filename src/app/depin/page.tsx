@@ -5,12 +5,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Network, HardDrive, Cpu, Wifi, Activity, ExternalLink, Zap, Globe, Calculator, BarChart3, Map, Bell, RefreshCw, Plus, Monitor, ChevronDown, Trash2, AlertCircle } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
+import { useAuth } from "@/contexts/AuthContext";
+import { WalletButton } from "@/components/wallet/WalletButton";
 import { apiDePINStore, type ApiDePINStore } from '@/components/depin/api-depin-store';
 import { type DePINProject, type UserNode } from '@/lib/api';
 import { CustomModal, AddNodeForm } from '@/components/depin/custom-modal';
 
 export default function DePINPage() {
   const { t } = useLanguage();
+  const { isAuthenticated, user, signOut } = useAuth();
   const [storeState, setStoreState] = useState<ApiDePINStore>(apiDePINStore.getState());
   const [notifications, setNotifications] = useState<string[]>([]);
   const [showAddNodeModal, setShowAddNodeModal] = useState(false);
@@ -26,29 +29,41 @@ export default function DePINPage() {
       setStoreState(apiDePINStore.getState());
     });
 
-    // Load initial data if authenticated
-    const currentState = apiDePINStore.getState();
-    if (currentState.isAuthenticated) {
-      apiDePINStore.refreshAll();
-    }
-
     return unsubscribe;
   }, []);
 
-  const handleConnectWallet = async () => {
-    try {
-      await apiDePINStore.connectWallet();
-      setNotifications(prev => [...prev, 'Wallet connected successfully!']);
-    } catch (error) {
-      console.error('Failed to connect wallet:', error);
-      setNotifications(prev => [...prev, 'Failed to connect wallet']);
+  useEffect(() => {
+    // Load initial data when authentication state changes
+    if (isAuthenticated) {
+      apiDePINStore.refreshAll();
     }
-  };
+  }, [isAuthenticated]);
 
-  const handleDisconnectWallet = async () => {
-    await apiDePINStore.disconnectWallet();
-    setNotifications(prev => [...prev, 'Wallet disconnected']);
-  };
+  // 自动刷新 Filecoin 收益
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const refreshFilecoinEarnings = async () => {
+      // 只刷新 Filecoin 节点数据
+      const filecoinNodes = storeState.nodes.filter(node => node.network.includes('Filecoin'));
+      if (filecoinNodes.length > 0) {
+        await apiDePINStore.refreshFilecoinEarnings();
+        setNotifications(prev => [
+          ...prev, 
+          `Filecoin 收益已刷新 - ${new Date().toLocaleTimeString()}`
+        ]);
+      }
+    };
+    
+    // 每 5 分钟刷新一次 Filecoin 收益
+    const interval = setInterval(refreshFilecoinEarnings, 5 * 60 * 1000);
+    
+    // 立即执行一次
+    refreshFilecoinEarnings();
+    
+    return () => clearInterval(interval);
+  }, [isAuthenticated, storeState.nodes.length]);
+
 
   const handleRefresh = async () => {
     await apiDePINStore.refreshAll();
@@ -58,6 +73,15 @@ export default function DePINPage() {
   const handleTriggerCapacityUpdate = async () => {
     const result = await apiDePINStore.triggerCapacityUpdate();
     setNotifications(prev => [...prev, result.message]);
+  };
+
+  const handleDisconnectWallet = async () => {
+    try {
+      await signOut();
+      setNotifications(prev => [...prev, 'Wallet disconnected successfully']);
+    } catch (error) {
+      setNotifications(prev => [...prev, 'Failed to disconnect wallet']);
+    }
   };
 
   const handleAddNodeSubmit = async (formData: Record<string, string>) => {
@@ -154,7 +178,7 @@ export default function DePINPage() {
   }
 
   // Show authentication prompt if not connected
-  if (!storeState.isAuthenticated) {
+  if (!isAuthenticated) {
     return (
       <div className="space-y-6">
         <div className="text-center py-12">
@@ -163,9 +187,7 @@ export default function DePINPage() {
           <p className="text-muted-foreground mb-6 max-w-md mx-auto">
             Connect your wallet to access DePIN projects and manage your nodes
           </p>
-          <Button onClick={handleConnectWallet} disabled={storeState.loading.auth}>
-            {storeState.loading.auth ? 'Connecting...' : 'Connect Wallet'}
-          </Button>
+          <WalletButton variant="default" className="min-w-[140px]" />
           {storeState.errors.auth && (
             <div className="mt-4 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
               <div className="flex items-center space-x-2 text-red-600 dark:text-red-400">
@@ -320,15 +342,46 @@ export default function DePINPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {storeState.projects.map((project, index) => {
+              {storeState.projects
+                .sort((a, b) => {
+                  // 将 Filecoin 排在第一位，Hivemapper 排在第二位
+                  if (a.name.includes('Filecoin')) return -1;
+                  if (b.name.includes('Filecoin')) return 1;
+                  if (a.name.includes('Hivemapper')) return -1;
+                  if (b.name.includes('Hivemapper')) return 1;
+                  return 0;
+                })
+                .map((project, index) => {
                 const IconComponent = getCategoryIcon(project.category);
                 // Find project capacity and earnings from dashboard stats
                 const projectStats = storeState.dashboardStats?.nodesByProject?.find(
                   p => p.projectName === project.name
                 );
-                const projectCapacity = projectStats?.totalCapacity || '0 TiB';
+                
+                // 修正容量单位显示（特别是 Filecoin）
+                let projectCapacity = projectStats?.totalCapacity || '0 TiB';
+                if (project.name.includes('Filecoin') && projectCapacity) {
+                  // 将 TiB 转换为 PiB 显示（如果值大于 1024）
+                  const match = projectCapacity.match(/(\d+\.?\d*)\s*(\w+)/);
+                  if (match) {
+                    const value = parseFloat(match[1]);
+                    const unit = match[2];
+                    if (unit === 'TiB' && value > 1024) {
+                      projectCapacity = `${(value / 1024).toFixed(2)} PiB`;
+                    }
+                  }
+                }
+                
                 const nodeCount = projectStats?.nodeCount || 0;
-                const dailyEarnings = projectStats?.totalDailyEarnings || 0;
+                
+                // 计算每个项目的日收益（从节点数据中聚合）
+                const projectNodes = storeState.nodes.filter(node => 
+                  node.network.includes(project.name.split(' ')[0]) || project.name.includes(node.network)
+                );
+                const dailyEarnings = projectNodes.reduce((sum, node) => {
+                  const match = node.earnings.match(/^([\d.]+)/);
+                  return sum + (match ? parseFloat(match[1]) : 0);
+                }, 0);
                 
                 return (
                   <div key={project.id} className="border rounded-lg p-4">
@@ -423,7 +476,7 @@ APY: ${project.apy}
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[800px] overflow-y-auto pr-2">
               {storeState.nodes.map((node) => (
                 <div key={node.id} className="border rounded-lg p-4 bg-green-50/50 dark:bg-green-950/20">
                   <div className="flex items-center justify-between mb-3">
@@ -456,7 +509,28 @@ APY: ${project.apy}
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Capacity</p>
-                      <p className="text-sm font-medium">{node.capacity}</p>
+                      <p className="text-sm font-medium">
+                        {node.capacity === null || !node.capacity ? 'Querying...' : (() => {
+                          // 对 Filecoin 节点的容量进行单位转换
+                          if (node.network.includes('Filecoin') && node.capacity) {
+                            const match = node.capacity.match(/(\d+\.?\d*)\s*(\w+)/);
+                            if (match) {
+                              const value = parseFloat(match[1]);
+                              const unit = match[2];
+                              
+                              // 将 TiB 转换为 PiB 显示（如果值大于等于 1024）
+                              if (unit === 'TiB' && value >= 1024) {
+                                return `${(value / 1024).toFixed(2)} PiB`;
+                              }
+                              // 将 GiB 转换为 PiB 显示（如果值大于等于 1048576）
+                              if (unit === 'GiB' && value >= 1048576) {
+                                return `${(value / 1048576).toFixed(2)} PiB`;
+                              }
+                            }
+                          }
+                          return node.capacity;
+                        })()}
+                      </p>
                     </div>
                   </div>
 

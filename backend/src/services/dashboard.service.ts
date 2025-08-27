@@ -367,15 +367,34 @@ export class DashboardService {
       
       group.nodes.forEach(node => {
         if (node.capacity && node.capacity !== 'Querying...') {
-          const match = node.capacity.match(/(\d+\.?\d*)/);
+          const match = node.capacity.match(/(\d+\.?\d*)\s*(\w+)/);
           if (match) {
-            totalCapacityValue += parseFloat(match[1]);
+            const value = parseFloat(match[1]);
+            const unit = match[2];
+            
+            // Convert everything to TiB for consistency
+            if (unit === 'TiB' || unit === 'TB') {
+              totalCapacityValue += value;
+            } else if (unit === 'GiB' || unit === 'GB') {
+              totalCapacityValue += value / 1024;
+            } else if (unit === 'PiB' || unit === 'PB') {
+              totalCapacityValue += value * 1024;
+            }
           }
         }
       });
 
+      // For Filecoin projects, convert to PiB if value is large enough
+      let displayCapacity = totalCapacityValue;
+      let displayUnit = capacityUnit;
+      
+      if (projectName.includes('Filecoin') && totalCapacityValue >= 1024) {
+        displayCapacity = totalCapacityValue / 1024;
+        displayUnit = 'PiB';
+      }
+
       const totalCapacity = totalCapacityValue > 0 ? 
-        `${totalCapacityValue.toFixed(2)} ${capacityUnit}` : '0 TiB';
+        `${displayCapacity.toFixed(2)} ${displayUnit}` : '0 TiB';
 
       // Calculate average performance score
       const performanceScores = group.nodes

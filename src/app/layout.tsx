@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { LanguageProvider } from "@/components/providers/language-provider";
 import { ToolsProvider } from "@/components/tools/tools-store";
+import { WalletProvider } from "@/components/wallet/WalletProvider";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import "./globals.css";
@@ -41,17 +43,21 @@ export default function RootLayout({
         >
           <LanguageProvider>
             <ToolsProvider>
-              <div className="flex h-screen">
-                <div className="w-64 border-r bg-card">
-                  <Sidebar />
-                </div>
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  <Header />
-                  <main className="flex-1 overflow-auto p-6">
-                    {children}
-                  </main>
-                </div>
-              </div>
+              <WalletProvider>
+                <AuthProvider>
+                  <div className="flex h-screen">
+                    <div className="w-64 border-r bg-card">
+                      <Sidebar />
+                    </div>
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <Header />
+                      <main className="flex-1 overflow-auto p-6">
+                        {children}
+                      </main>
+                    </div>
+                  </div>
+                </AuthProvider>
+              </WalletProvider>
             </ToolsProvider>
           </LanguageProvider>
         </ThemeProvider>
