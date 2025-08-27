@@ -68,12 +68,14 @@ export const schemas = {
     description: Joi.string().required().min(10).max(1000),
     blockchain: Joi.string().required().min(1).max(50),
     tokenSymbol: Joi.string().required().min(1).max(20),
+    websiteUrl: Joi.string().uri().required(),
     tokenPrice: Joi.number().min(0).optional(),
-    apy: Joi.string().required(),
-    minInvestment: Joi.number().min(0).required(),
-    roiPeriod: Joi.number().integer().min(1).max(240).required(),
-    geographicFocus: Joi.array().items(Joi.string().min(1).max(50)).required(),
-    riskLevel: Joi.string().valid('LOW', 'MEDIUM', 'HIGH').required(),
+    // 以下字段将使用默认值
+    apy: Joi.string().optional().default('15%'),
+    minInvestment: Joi.number().min(0).optional().default(1000),
+    roiPeriod: Joi.number().integer().min(1).max(240).optional().default(12),
+    geographicFocus: Joi.array().items(Joi.string().min(1).max(50)).optional().default(['全球']),
+    riskLevel: Joi.string().valid('LOW', 'MEDIUM', 'HIGH').optional().default('MEDIUM'),
     hardwareRequirements: Joi.array().items(
       Joi.object({
         type: Joi.string().required(),
@@ -81,7 +83,7 @@ export const schemas = {
         cost: Joi.number().min(0).required(),
         powerConsumption: Joi.number().min(0).required()
       })
-    ).required()
+    ).optional().default([])
   }),
 
   // Node creation

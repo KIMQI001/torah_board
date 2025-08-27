@@ -67,6 +67,7 @@ router.put(
         powerConsumption: Joi.number().min(0).required()
       })
     ).optional(),
+    websiteUrl: Joi.string().uri().optional(),
     status: Joi.string().valid('ACTIVE', 'INACTIVE', 'MAINTENANCE').optional()
   })),
   ProjectsController.updateProject

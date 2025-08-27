@@ -43,6 +43,7 @@ model DePINProject {
   geographicFocus    String   // JSON string array of countries/regions
   riskLevel          String   // 'LOW', 'MEDIUM', 'HIGH'
   hardwareRequirements String // JSON string array of hardware specs
+  websiteUrl         String?  // Official website URL
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   

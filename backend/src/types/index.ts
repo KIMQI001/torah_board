@@ -50,6 +50,7 @@ export interface CreateProjectRequest {
   geographicFocus: string[];
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   hardwareRequirements: HardwareSpec[];
+  websiteUrl?: string;
 }
 
 export interface UpdateProjectRequest extends Partial<CreateProjectRequest> {}

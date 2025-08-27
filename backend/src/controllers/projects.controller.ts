@@ -81,6 +81,7 @@ export class ProjectsController {
         roiPeriod: project.roiPeriod,
         geographicFocus: project.geographicFocus,
         riskLevel: project.riskLevel.toLowerCase(),
+        websiteUrl: project.websiteUrl,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt
       }));
@@ -155,6 +156,7 @@ export class ProjectsController {
         roiPeriod: project.roiPeriod,
         geographicFocus: project.geographicFocus,
         riskLevel: project.riskLevel.toLowerCase(),
+        websiteUrl: project.websiteUrl,
         recentNodes: project.nodes,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt
@@ -197,9 +199,10 @@ export class ProjectsController {
           apy: projectData.apy,
           minInvestment: projectData.minInvestment,
           roiPeriod: projectData.roiPeriod,
-          geographicFocus: projectData.geographicFocus,
+          geographicFocus: JSON.stringify(projectData.geographicFocus),
           riskLevel: projectData.riskLevel,
-          hardwareRequirements: projectData.hardwareRequirements,
+          hardwareRequirements: JSON.stringify(projectData.hardwareRequirements),
+          websiteUrl: projectData.websiteUrl,
           status: 'ACTIVE'
         }
       });
@@ -231,6 +234,7 @@ export class ProjectsController {
         roiPeriod: project.roiPeriod,
         geographicFocus: project.geographicFocus,
         riskLevel: project.riskLevel.toLowerCase(),
+        websiteUrl: project.websiteUrl,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt
       };
