@@ -9,7 +9,8 @@ import {
   Clock, AlertTriangle, CheckCircle, Circle,
   TrendingUp, Coins, FileText, Plus, List,
   Flag, User, MoreVertical, Edit3, Trash2, 
-  Play, Pause, Square, RotateCcw, CheckSquare
+  Play, Pause, Square, RotateCcw, CheckSquare,
+  Gift, AlertCircle
 } from 'lucide-react';
 import { DAOProject, DAOMilestone, DAOTask, daoApi } from '@/lib/api';
 import { CreateTaskModal } from './CreateTaskModal';
@@ -27,6 +28,7 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks'>('overview');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<any | null>(null);
 
   useEffect(() => {
     if (project?.milestones) {
@@ -72,13 +74,11 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
 
   // Task operations
   const handleDeleteTask = async (taskId: string) => {
-    if (!confirm('确定要删除这个任务吗？此操作无法撤销。')) {
-      return;
-    }
-    
     try {
       await daoApi.deleteTask(taskId);
       console.log('✅ 任务删除成功:', taskId);
+      
+      setTaskToDelete(null);
       
       // Refresh task list
       if (project?.id) {
@@ -87,6 +87,25 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
     } catch (error) {
       console.error('❌ 删除任务失败:', error);
       alert('删除任务失败，请重试');
+    }
+  };
+
+  const handleClaimReward = async (taskId: string, tokenReward: number) => {
+    try {
+      console.log('🎁 申领任务奖励:', { taskId, tokenReward });
+      
+      // TODO: 实现申领奖励的API调用
+      // await daoApi.claimTaskReward(taskId);
+      
+      alert(`🎉 申领成功！\n\n您获得了 ${tokenReward} ${daoToken} 代币奖励！\n奖励将发送到您的钱包地址。`);
+      
+      // Refresh task list to update status
+      if (project?.id) {
+        await fetchTasks(project.id);
+      }
+    } catch (error) {
+      console.error('❌ 申领奖励失败:', error);
+      alert('申领奖励失败，请重试');
     }
   };
 
@@ -604,6 +623,23 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
                                 <span>负责人: {task.assigneeId}</span>
                               </div>
                             )}
+
+                            {/* Claim Reward Button */}
+                            {task.status === 'COMPLETED' && task.tokenReward > 0 && (
+                              <div className="flex justify-end mt-3">
+                                <Button
+                                  size="sm"
+                                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleClaimReward(task.id, task.tokenReward);
+                                  }}
+                                >
+                                  <Gift className="h-4 w-4 mr-2" />
+                                  申领奖励 ({task.tokenReward.toFixed(2)} {daoToken})
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -695,7 +731,7 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
                                   <button
                                     className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                                     onClick={() => {
-                                      handleDeleteTask(task.id);
+                                      setTaskToDelete(task);
                                       setOpenDropdown(null);
                                     }}
                                   >
@@ -747,6 +783,57 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
           daoToken={daoToken}
           onTaskCreated={handleTaskCreated}
         />
+      )}
+
+      {/* Delete Task Confirmation Modal */}
+      {taskToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="flex-shrink-0">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">确认删除任务</h3>
+                </div>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-3">
+                  您确定要删除以下任务吗？此操作无法撤销。
+                </p>
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <h4 className="font-medium text-gray-900 mb-1">{taskToDelete.title}</h4>
+                  <p className="text-sm text-gray-600">{taskToDelete.description}</p>
+                  {taskToDelete.tokenReward > 0 && (
+                    <div className="flex items-center space-x-1 mt-2 text-sm text-purple-600">
+                      <Award className="h-3 w-3" />
+                      <span>奖励: {taskToDelete.tokenReward.toFixed(2)} {daoToken}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setTaskToDelete(null)}
+                >
+                  取消
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDeleteTask(taskToDelete.id)}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  确认删除
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
