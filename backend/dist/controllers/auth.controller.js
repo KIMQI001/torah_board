@@ -88,19 +88,28 @@ class AuthController {
                 userId: user.id,
                 walletAddress: user.walletAddress
             });
-            // Get wallet balance
-            const balance = await solana_1.SolanaUtil.getWalletBalance(walletAddress);
+            // 立即返回认证结果，不等待余额获取
             response_1.ResponseUtil.success(res, {
                 token,
                 user: {
                     id: user.id,
                     walletAddress: user.walletAddress,
                     publicKey: user.publicKey,
-                    balance,
+                    balance: 0, // 余额将异步获取
                     createdAt: user.createdAt,
                     lastLogin: user.lastLogin
                 }
             }, 'Authentication successful');
+            // 异步获取钱包余额，不阻塞认证响应
+            solana_1.SolanaUtil.getWalletBalance(walletAddress).then(balance => {
+                logger_1.Logger.debug('Wallet balance fetched', { walletAddress, balance });
+                // 可以在这里更新用户余额到数据库或通过WebSocket推送
+            }).catch(error => {
+                logger_1.Logger.warn('Failed to fetch wallet balance', {
+                    walletAddress,
+                    error: error.message
+                });
+            });
         }
         catch (error) {
             logger_1.Logger.error('Authentication error', { error: error.message });

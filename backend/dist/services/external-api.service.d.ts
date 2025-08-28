@@ -2,6 +2,18 @@ export declare class ExternalApiService {
     private static readonly FILECOIN_API_BASE;
     private static readonly HELIUM_API_BASE;
     private static readonly REQUEST_TIMEOUT;
+    private static readonly MAX_RETRIES;
+    /**
+     * Retry mechanism for API calls
+     */
+    private static makeRequestWithRetry;
+    /**
+     * Query Filecoin miner earnings
+     */
+    static queryFilecoinMinerEarnings(minerId: string, duration?: '24h' | '7d' | '30d'): Promise<{
+        daily: number;
+        total: number;
+    } | null>;
     /**
      * Query Filecoin miner power/capacity
      */

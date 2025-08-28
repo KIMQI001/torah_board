@@ -23,6 +23,9 @@ import Link from "next/link";
 import { daoApi, healthApi, DAO, DAOProposal, DAOProject, DAOMember, DAOTreasury } from "@/lib/api";
 import { WalletButton } from "@/components/wallet/WalletButton";
 import { CreateDAOModal } from "@/components/dao/CreateDAOModal";
+import { CreateProjectModal } from "@/components/dao/CreateProjectModal";
+import { CreateProposalModal } from "@/components/dao/CreateProposalModal";
+import { DAOAnalytics } from "@/components/dao/DAOAnalytics";
 import { ToastContainer } from "@/components/ui/toast-container";
 import { useToast } from "@/hooks/use-toast";
 
@@ -286,6 +289,101 @@ export default function DAOPage() {
     }
   };
 
+  // Create Project
+  const handleCreateProject = async (data: any) => {
+    if (!selectedDAO) {
+      showError('No DAO selected', 'Please select a DAO first.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      console.log('🔥 Creating project with data:', {
+        daoId: selectedDAO.id,
+        data,
+        user: user?.id,
+        isAuthenticated
+      });
+      const response = await daoApi.createProject(selectedDAO.id, data);
+      console.log('📥 API Response:', response);
+      
+      if (response.success) {
+        console.log('✅ Project created successfully:', response.data);
+        success('Project created successfully!', 'Your project has been created and is now active.');
+        setShowCreateProject(false);
+        await loadDAODetails(selectedDAO.id); // Refresh project list
+      } else {
+        showError('Failed to create project', response.message || 'Please check your input and try again.');
+      }
+    } catch (err) {
+      console.error('❌ Failed to create project:', err);
+      showError('Failed to create project', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create Proposal
+  const handleCreateProposal = async (data: any) => {
+    if (!selectedDAO) {
+      showError('No DAO selected', 'Please select a DAO first.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      console.log('🔥 Creating proposal with data:', data);
+      const response = await daoApi.createProposal(selectedDAO.id, data);
+      
+      if (response.success) {
+        console.log('✅ Proposal created successfully:', response.data);
+        success('Proposal created successfully!', 'Your proposal is now active and members can vote.');
+        setShowCreateProposal(false);
+        await loadDAODetails(selectedDAO.id); // Refresh proposal list
+      } else {
+        showError('Failed to create proposal', response.message || 'Please check your input and try again.');
+      }
+    } catch (err) {
+      console.error('❌ Failed to create proposal:', err);
+      showError('Failed to create proposal', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Vote on Proposal
+  const handleVote = async (proposalId: string, voteType: 'FOR' | 'AGAINST' | 'ABSTAIN') => {
+    if (!selectedDAO) {
+      showError('No DAO selected', 'Please select a DAO first.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      console.log('🔥 Voting on proposal:', { proposalId, voteType });
+      const response = await daoApi.voteOnProposal(proposalId, {
+        voteType,
+        reason: '' // Could add a reason input in the future
+      });
+      
+      if (response.success) {
+        console.log('✅ Vote submitted successfully');
+        success('Vote submitted successfully!', `Your ${voteType} vote has been recorded.`);
+        await loadDAODetails(selectedDAO.id); // Refresh to show updated vote counts
+      } else {
+        showError('Failed to submit vote', response.message || 'Please try again.');
+      }
+    } catch (err) {
+      console.error('❌ Failed to vote:', err);
+      showError('Failed to submit vote', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Join DAO
   const handleJoinDAO = async (daoId: string) => {
     try {
@@ -305,29 +403,6 @@ export default function DAOPage() {
     }
   };
 
-  // Vote on proposal
-  const handleVote = async (proposalId: string, voteType: 'FOR' | 'AGAINST' | 'ABSTAIN') => {
-    try {
-      setLoading(true);
-      const response = await daoApi.voteOnProposal(proposalId, { voteType });
-      if (response.success) {
-        // Reload proposals
-        if (selectedDAO) {
-          const proposalsResponse = await daoApi.getProposals(selectedDAO.id);
-          if (proposalsResponse.success) {
-            setProposals(proposalsResponse.data);
-          }
-        }
-      } else {
-        setError(response.message);
-      }
-    } catch (err) {
-      console.error('Failed to vote:', err);
-      setError('Failed to vote');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -1002,14 +1077,14 @@ export default function DAOPage() {
         {activeTab === 'projects' && renderProjectsTab()}
         {activeTab === 'treasury' && renderTreasuryTab()}
         {activeTab === 'members' && renderMembersTab()}
-        {activeTab === 'analytics' && (
-          <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-            <BarChart className="h-16 w-16 text-muted-foreground" />
-            <h3 className="text-lg font-medium">Analytics Coming Soon</h3>
-            <p className="text-muted-foreground text-center">
-              Advanced analytics and insights will be available in the next update.
-            </p>
-          </div>
+        {activeTab === 'analytics' && selectedDAO && (
+          <DAOAnalytics 
+            dao={selectedDAO}
+            proposals={proposals}
+            projects={projects}
+            members={members}
+            treasury={treasury}
+          />
         )}
       </div>
 
@@ -1032,6 +1107,20 @@ export default function DAOPage() {
           setShowCreateDAO(false);
         }}
         onSuccess={handleCreateDAO}
+      />
+
+      {/* Create Project Modal */}
+      <CreateProjectModal
+        isOpen={showCreateProject}
+        onClose={() => setShowCreateProject(false)}
+        onSuccess={handleCreateProject}
+      />
+
+      {/* Create Proposal Modal */}
+      <CreateProposalModal
+        isOpen={showCreateProposal}
+        onClose={() => setShowCreateProposal(false)}
+        onSuccess={handleCreateProposal}
       />
       
       {/* Toast Container */}

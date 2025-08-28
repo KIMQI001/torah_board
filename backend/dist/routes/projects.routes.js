@@ -46,6 +46,7 @@ router.put('/:id', auth_1.authenticate, (0, validation_1.validate)(joi_1.default
         cost: joi_1.default.number().min(0).required(),
         powerConsumption: joi_1.default.number().min(0).required()
     })).optional(),
+    websiteUrl: joi_1.default.string().uri().optional(),
     status: joi_1.default.string().valid('ACTIVE', 'INACTIVE', 'MAINTENANCE').optional()
 })), projects_controller_1.ProjectsController.updateProject);
 // Delete project (authenticated users only)

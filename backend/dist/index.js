@@ -20,6 +20,7 @@ const projects_routes_1 = require("@/routes/projects.routes");
 const nodes_routes_1 = require("@/routes/nodes.routes");
 const roi_routes_1 = require("@/routes/roi.routes");
 const dashboard_routes_1 = require("@/routes/dashboard.routes");
+const dao_routes_1 = __importDefault(require("@/routes/dao.routes"));
 // Import services
 const scheduler_service_1 = require("@/services/scheduler.service");
 const websocket_service_1 = require("@/services/websocket.service");
@@ -33,21 +34,30 @@ app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
     origin: process.env.NODE_ENV === 'production'
         ? ['https://your-frontend-domain.com']
-        : ['http://localhost:3000', 'http://localhost:3005', 'http://localhost:3006'],
+        : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 'http://localhost:3005', 'http://localhost:3006'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-// Rate limiting
+// Rate limiting (more lenient in development)
 const limiter = (0, express_rate_limit_1.default)({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // limit each IP to 100 requests per windowMs
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000'), // 1 minute in dev
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || (process.env.NODE_ENV === 'development' ? '1000' : '100')), // 1000 req/min in dev, 100 req/15min in prod
     message: {
         success: false,
         error: 'Too many requests from this IP, please try again later.'
-    }
+    },
+    standardHeaders: true, // Return rate limit info in headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
-app.use(limiter);
+// Only apply rate limiting in production or if explicitly enabled
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_RATE_LIMIT === 'true') {
+    app.use(limiter);
+    logger_1.Logger.info('Rate limiting enabled');
+}
+else {
+    logger_1.Logger.info('Rate limiting disabled in development');
+}
 // Body parsing middleware
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
@@ -94,6 +104,7 @@ app.use(`/api/${API_VERSION}/projects`, projects_routes_1.projectsRoutes);
 app.use(`/api/${API_VERSION}/nodes`, nodes_routes_1.nodesRoutes);
 app.use(`/api/${API_VERSION}/roi`, roi_routes_1.roiRoutes);
 app.use(`/api/${API_VERSION}/dashboard`, dashboard_routes_1.dashboardRoutes);
+app.use(`/api/${API_VERSION}`, dao_routes_1.default);
 // 404 handler
 app.use('*', (req, res) => {
     response_1.ResponseUtil.notFound(res, `Route ${req.originalUrl} not found`);

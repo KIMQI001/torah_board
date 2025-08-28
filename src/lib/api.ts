@@ -213,15 +213,21 @@ async function apiRequest<T>(
         errorText = 'Failed to read error response';
       }
       
-      console.error('❌ API响应错误:', {
+      console.error('❌ API响应错误 - Status:', response.status);
+      console.error('❌ API响应错误 - StatusText:', response.statusText);
+      console.error('❌ API响应错误 - URL:', url);
+      console.error('❌ API响应错误 - Body:', errorText);
+      console.error('❌ API响应错误 - ContentType:', response.headers.get('content-type'));
+      
+      const errorInfo = {
         status: response.status,
         statusText: response.statusText,
         url,
         errorText: errorText || 'No error text',
-        contentType: response.headers.get('content-type'),
-        retryAfter: response.headers.get('retry-after'),
-        rateLimit: response.headers.get('x-ratelimit-remaining')
-      });
+        contentType: response.headers.get('content-type')
+      };
+      
+      console.error('❌ Complete error info:', JSON.stringify(errorInfo, null, 2));
       
       if (response.status === 429 && retryCount < maxRetries) {
         const retryAfter = parseInt(response.headers.get('retry-after') || '1');

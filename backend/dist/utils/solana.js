@@ -63,12 +63,17 @@ class SolanaUtil {
         }
     }
     /**
-     * Get SOL balance for wallet
+     * Get SOL balance for wallet with timeout
      */
     static async getWalletBalance(walletAddress) {
         try {
             const publicKey = new web3_js_1.PublicKey(walletAddress);
-            const balance = await this.getConnection().getBalance(publicKey);
+            // 添加5秒超时机制
+            const balancePromise = this.getConnection().getBalance(publicKey);
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Balance fetch timeout')), 5000);
+            });
+            const balance = await Promise.race([balancePromise, timeoutPromise]);
             return balance / 1e9; // Convert lamports to SOL
         }
         catch (error) {

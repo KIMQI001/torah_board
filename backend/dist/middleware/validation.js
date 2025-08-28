@@ -65,18 +65,20 @@ exports.schemas = {
         description: joi_1.default.string().required().min(10).max(1000),
         blockchain: joi_1.default.string().required().min(1).max(50),
         tokenSymbol: joi_1.default.string().required().min(1).max(20),
+        websiteUrl: joi_1.default.string().uri().required(),
         tokenPrice: joi_1.default.number().min(0).optional(),
-        apy: joi_1.default.string().required(),
-        minInvestment: joi_1.default.number().min(0).required(),
-        roiPeriod: joi_1.default.number().integer().min(1).max(240).required(),
-        geographicFocus: joi_1.default.array().items(joi_1.default.string().min(1).max(50)).required(),
-        riskLevel: joi_1.default.string().valid('LOW', 'MEDIUM', 'HIGH').required(),
+        // 以下字段将使用默认值
+        apy: joi_1.default.string().optional().default('15%'),
+        minInvestment: joi_1.default.number().min(0).optional().default(1000),
+        roiPeriod: joi_1.default.number().integer().min(1).max(240).optional().default(12),
+        geographicFocus: joi_1.default.array().items(joi_1.default.string().min(1).max(50)).optional().default(['全球']),
+        riskLevel: joi_1.default.string().valid('LOW', 'MEDIUM', 'HIGH').optional().default('MEDIUM'),
         hardwareRequirements: joi_1.default.array().items(joi_1.default.object({
             type: joi_1.default.string().required(),
             requirement: joi_1.default.string().required(),
             cost: joi_1.default.number().min(0).required(),
             powerConsumption: joi_1.default.number().min(0).required()
-        })).required()
+        })).optional().default([])
     }),
     // Node creation
     createNode: joi_1.default.object({

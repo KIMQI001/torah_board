@@ -186,17 +186,22 @@ class NodesController {
             const failedNodes = [];
             for (const nodeId of nodeIds) {
                 try {
+                    // Auto-generate monitor URL for Filecoin nodes
+                    let finalMonitorUrl = monitorUrl;
+                    if (!finalMonitorUrl && project.name.toLowerCase().includes('filecoin') && nodeId.startsWith('f0')) {
+                        finalMonitorUrl = `https://filfox.info/zh/address/${nodeId}`;
+                    }
                     const node = await database_1.prisma.userNode.create({
                         data: {
                             userId: req.user.id,
                             projectId,
                             nodeId,
                             type,
-                            capacity: capacity || null, // Will be updated by capacity query service
+                            capacity: capacity || null, // Will be updated by capacity query
                             location,
-                            monitorUrl,
+                            monitorUrl: finalMonitorUrl,
                             hardware: hardware ? JSON.stringify(hardware) : null,
-                            status: 'SYNCING' // Start as syncing, will be updated by monitoring
+                            status: 'online' // Default to online for demo
                         },
                         include: {
                             project: {
@@ -242,8 +247,26 @@ class NodesController {
                     failedNodes.push({ nodeId, error: error.message });
                 }
             }
-            // TODO: Trigger capacity query for nodes without capacity
-            // This will be implemented in the external API service
+            // Async trigger capacity query for newly created nodes
+            if (createdNodes.length > 0) {
+                // Don't wait for capacity updates, do them asynchronously
+                setImmediate(async () => {
+                    for (const node of createdNodes) {
+                        try {
+                            const success = await external_api_service_1.ExternalApiService.updateSingleNodeCapacity(node.id, req.user.id);
+                            if (success) {
+                                logger_1.Logger.info('Node capacity updated', { nodeId: node.id, userId: req.user.id });
+                            }
+                        }
+                        catch (error) {
+                            logger_1.Logger.warn('Failed to update node capacity', {
+                                nodeId: node.id,
+                                error: error.message
+                            });
+                        }
+                    }
+                });
+            }
             const responseData = {
                 created: createdNodes,
                 failed: failedNodes,

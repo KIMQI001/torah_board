@@ -98,6 +98,25 @@ export class DAOProjectsController {
         milestones
       } = req.body;
       
+      Logger.info('Creating project', { 
+        daoId, 
+        userId, 
+        title,
+        startDate,
+        expectedEndDate
+      });
+      
+      // Check if DAO exists
+      const dao = await prisma.dAO.findUnique({
+        where: { id: daoId }
+      });
+      
+      if (!dao) {
+        Logger.error('DAO not found', { daoId });
+        ResponseUtil.notFound(res, 'DAO not found');
+        return;
+      }
+      
       // Check if user is admin of DAO
       const member = await prisma.dAOMember.findFirst({
         where: { 
@@ -108,6 +127,7 @@ export class DAOProjectsController {
       });
       
       if (!member) {
+        Logger.error('User is not DAO admin', { daoId, userId });
         ResponseUtil.forbidden(res, 'Only DAO admins can create projects');
         return;
       }

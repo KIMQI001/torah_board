@@ -16,7 +16,7 @@ export declare class SolanaUtil {
      */
     static isValidWalletAddress(address: string): boolean;
     /**
-     * Get SOL balance for wallet
+     * Get SOL balance for wallet with timeout
      */
     static getWalletBalance(walletAddress: string): Promise<number>;
     /**
