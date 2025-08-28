@@ -52,6 +52,7 @@ const daoSchemas = {
         totalBudget: joi_1.default.number().min(0).required(),
         roi: joi_1.default.number().optional(),
         riskLevel: joi_1.default.string().valid('LOW', 'MEDIUM', 'HIGH').required(),
+        tokenReward: joi_1.default.number().min(0).optional(),
         teamMembers: joi_1.default.array().items(joi_1.default.string()).optional(),
         startDate: joi_1.default.date().required(),
         expectedEndDate: joi_1.default.date().greater(joi_1.default.ref('startDate')).required(),

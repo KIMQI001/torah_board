@@ -248,9 +248,25 @@ async function apiRequest<T>(
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
     }
     
-    const data = await response.json();
-    console.log('✅ API响应成功:', { url, dataType: typeof data, hasData: !!data });
-    return data;
+    const responseData = await response.json();
+    console.log('✅ API响应成功:', { url, responseType: typeof responseData, response: responseData });
+    
+    // 检查是否为标准API响应格式 {success: true, data: ...}
+    if (responseData && typeof responseData === 'object' && 'success' in responseData) {
+      if (responseData.success) {
+        console.log('✅ 提取数据字段:', responseData.data);
+        return responseData.data;
+      } else {
+        // API返回success: false的错误
+        const errorMsg = responseData.error || responseData.message || 'API request failed';
+        console.error('❌ API业务逻辑错误:', errorMsg);
+        throw new Error(errorMsg);
+      }
+    }
+    
+    // 如果不是标准格式，直接返回
+    console.log('ℹ️ 非标准API响应，直接返回:', responseData);
+    return responseData;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       console.error('⏰ API请求超时:', { url, timeout: '10s' });
@@ -839,6 +855,25 @@ export interface DAOMilestone {
   createdAt: string;
 }
 
+export interface DAOTask {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  status: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  assigneeId?: string;
+  costEstimate: number;
+  tokenReward: number;
+  dueDate?: string;
+  completedDate?: string;
+  attachments?: string;
+  tags?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DAOVote {
   id: string;
   proposalId: string;
@@ -1189,6 +1224,63 @@ export const daoApi = {
     return apiRequest<DAOTreasury>(`/treasury/transactions/${transactionId}/reject`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
+    });
+  },
+
+  // Tasks
+  async getTasks(projectId: string, status?: string, assigneeId?: string, priority?: string, page = 1, limit = 20) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      ...(status && { status }),
+      ...(assigneeId && { assigneeId }),
+      ...(priority && { priority })
+    });
+    return apiRequest<DAOTask[]>(`/projects/${projectId}/tasks?${params}`);
+  },
+
+  async getTask(id: string) {
+    return apiRequest<DAOTask>(`/tasks/${id}`);
+  },
+
+  async createTask(projectId: string, data: {
+    title: string;
+    description: string;
+    priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+    assigneeId?: string;
+    costEstimate?: number;
+    tokenReward?: number;
+    dueDate?: string;
+    tags?: string[];
+  }) {
+    return apiRequest<DAOTask>(`/projects/${projectId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateTask(id: string, data: {
+    title?: string;
+    description?: string;
+    status?: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED';
+    priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+    assigneeId?: string;
+    costEstimate?: number;
+    tokenReward?: number;
+    dueDate?: string;
+    completedDate?: string;
+    attachments?: string[];
+    tags?: string[];
+  }) {
+    return apiRequest<DAOTask>(`/tasks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteTask(id: string) {
+    return apiRequest<null>(`/tasks/${id}`, {
+      method: 'DELETE',
     });
   }
 };

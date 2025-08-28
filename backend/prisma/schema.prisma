@@ -203,6 +203,7 @@ model DAOProject {
   startDate       DateTime
   expectedEndDate DateTime
   completedDate   DateTime?
+  tokenReward     Float    @default(0) // Governance tokens earned upon completion
   createdBy       String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -210,6 +211,7 @@ model DAOProject {
   // Relations
   dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
   milestones      DAOMilestone[]
+  tasks           DAOTask[]
   
   @@map("dao_projects")
 }
@@ -317,4 +319,28 @@ model DAODistribution {
   dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
   
   @@map("dao_distributions")
+}
+
+model DAOTask {
+  id              String   @id @default(cuid())
+  projectId       String
+  title           String
+  description     String
+  status          String   @default("TODO") // 'TODO', 'IN_PROGRESS', 'REVIEW', 'COMPLETED'
+  priority        String   @default("MEDIUM") // 'LOW', 'MEDIUM', 'HIGH', 'URGENT'
+  assigneeId      String?  // User ID of assigned member
+  costEstimate    Float    @default(0) // SOL cost for completing task
+  tokenReward     Float    @default(0) // Governance tokens earned upon completion
+  dueDate         DateTime?
+  completedDate   DateTime?
+  attachments     String?  // JSON array of file URLs
+  tags            String?  // JSON array of tags
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  project         DAOProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@map("dao_tasks")
 }

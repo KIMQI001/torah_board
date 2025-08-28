@@ -25,6 +25,7 @@ import { WalletButton } from "@/components/wallet/WalletButton";
 import { CreateDAOModal } from "@/components/dao/CreateDAOModal";
 import { CreateProjectModal } from "@/components/dao/CreateProjectModal";
 import { CreateProposalModal } from "@/components/dao/CreateProposalModal";
+import { ProjectDetailsModal } from "@/components/dao/ProjectDetailsModal";
 import { DAOAnalytics } from "@/components/dao/DAOAnalytics";
 import { ToastContainer } from "@/components/ui/toast-container";
 import { useToast } from "@/hooks/use-toast";
@@ -98,6 +99,8 @@ export default function DAOPage() {
   const [showCreateProposal, setShowCreateProposal] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showCreateDAO, setShowCreateDAO] = useState(false);
+  const [showProjectDetails, setShowProjectDetails] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<DAOProject | null>(null);
   
 
   const tabs = [
@@ -124,37 +127,32 @@ export default function DAOPage() {
       
       // Always load user's DAOs (user can only manage DAOs they're members of)
       console.log('🔥 Calling daoApi.getDAOs with userId:', user.id);
-      const response = await daoApi.getDAOs(user.id);
+      const daosData = await daoApi.getDAOs(user.id);
       
-      console.log('✅ getDAOs response:', response);
+      console.log('✅ getDAOs response:', daosData);
       
-      if (response.success) {
-        setDAOs(response.data);
-        console.log('📊 DAOs loaded:', response.data.length);
+      setDAOs(daosData);
+      console.log('📊 DAOs loaded:', daosData.length);
+      
+      // Auto-select DAO based on URL parameter or first available DAO
+      if (daosData.length > 0) {
+        let daoToSelect = daosData[0]; // Default to first DAO
         
-        // Auto-select DAO based on URL parameter or first available DAO
-        if (response.data.length > 0) {
-          let daoToSelect = response.data[0]; // Default to first DAO
-          
-          // If there's a target DAO ID from URL, try to find and select it
-          if (targetDAOId) {
-            const foundDAO = response.data.find(dao => dao.id === targetDAOId);
-            if (foundDAO) {
-              daoToSelect = foundDAO;
-              console.log('🎯 Found target DAO from URL:', foundDAO.name);
-            } else {
-              console.warn('⚠️ Target DAO not found or user is not a member, falling back to first DAO');
-            }
-          }
-          
-          if (!selectedDAO || selectedDAO.id !== daoToSelect.id) {
-            setSelectedDAO(daoToSelect);
-            console.log('🎯 Selected DAO:', daoToSelect.name);
+        // If there's a target DAO ID from URL, try to find and select it
+        if (targetDAOId) {
+          const foundDAO = daosData.find(dao => dao.id === targetDAOId);
+          if (foundDAO) {
+            daoToSelect = foundDAO;
+            console.log('🎯 Found target DAO from URL:', foundDAO.name);
+          } else {
+            console.warn('⚠️ Target DAO not found or user is not a member, falling back to first DAO');
           }
         }
-      } else {
-        console.error('❌ getDAOs failed:', response.message);
-        setError(response.message);
+        
+        if (!selectedDAO || selectedDAO.id !== daoToSelect.id) {
+          setSelectedDAO(daoToSelect);
+          console.log('🎯 Selected DAO:', daoToSelect.name);
+        }
       }
     } catch (err) {
       console.error('💥 loadDAOs exception:', err);
@@ -186,21 +184,11 @@ export default function DAOPage() {
         daoApi.getDAOStats(daoId)
       ]);
 
-      if (daoResponse.success) {
-        setSelectedDAO(daoResponse.data);
-      }
-      if (proposalsResponse.success) {
-        setProposals(proposalsResponse.data);
-      }
-      if (projectsResponse.success) {
-        setProjects(projectsResponse.data);
-      }
-      if (membersResponse.success) {
-        setMembers(membersResponse.data);
-      }
-      if (statsResponse.success) {
-        setDAOStats(statsResponse.data);
-      }
+      setSelectedDAO(daoResponse);
+      setProposals(proposalsResponse);
+      setProjects(projectsResponse);
+      setMembers(membersResponse);
+      setDAOStats(statsResponse);
       
     } catch (err) {
       console.error('Failed to load DAO details:', err);
@@ -220,12 +208,8 @@ export default function DAOPage() {
         daoApi.getTreasuryTransactions(daoId)
       ]);
 
-      if (balanceResponse.success) {
-        setTreasuryBalance(balanceResponse.data);
-      }
-      if (transactionsResponse.success) {
-        setTreasuryTransactions(transactionsResponse.data);
-      }
+      setTreasuryBalance(balanceResponse);
+      setTreasuryTransactions(transactionsResponse);
     } catch (err) {
       console.error('Failed to load treasury data:', err);
     }
@@ -254,7 +238,7 @@ export default function DAOPage() {
       
       console.log('🔥 Creating DAO with data:', data);
       
-      const response = await daoApi.createDAO({
+      const newDAO = await daoApi.createDAO({
         name: data.name,
         description: data.description,
         treasuryAddress: data.treasuryAddress,
@@ -264,22 +248,18 @@ export default function DAOPage() {
         votingPeriod: data.votingPeriod
       });
       
-      if (response.success) {
-        console.log('✅ DAO created successfully:', response.data);
-        
-        success('DAO created successfully!', 'Your new DAO has been created and you are now an admin.');
-        
-        // Refresh DAO list
-        await loadDAOs();
-        
-        // Select the newly created DAO
-        setSelectedDAO(response.data);
-        setShowCreateDAO(false);
-        
-        console.log('🎉 DAO creation completed!');
-      } else {
-        showError('Failed to create DAO', response.message || 'Please check your input and try again.');
-      }
+      console.log('✅ DAO created successfully:', newDAO);
+      
+      success('DAO created successfully!', 'Your new DAO has been created and you are now an admin.');
+      
+      // Refresh DAO list
+      await loadDAOs();
+      
+      // Select the newly created DAO
+      setSelectedDAO(newDAO);
+      setShowCreateDAO(false);
+      
+      console.log('🎉 DAO creation completed!');
       
     } catch (err) {
       console.error('❌ Failed to create DAO:', err);
@@ -305,23 +285,25 @@ export default function DAOPage() {
         user: user?.id,
         isAuthenticated
       });
-      const response = await daoApi.createProject(selectedDAO.id, data);
-      console.log('📥 API Response:', response);
+      const newProject = await daoApi.createProject(selectedDAO.id, data);
+      console.log('📥 API Response:', newProject);
       
-      if (response.success) {
-        console.log('✅ Project created successfully:', response.data);
-        success('Project created successfully!', 'Your project has been created and is now active.');
-        setShowCreateProject(false);
-        await loadDAODetails(selectedDAO.id); // Refresh project list
-      } else {
-        showError('Failed to create project', response.message || 'Please check your input and try again.');
-      }
+      console.log('✅ Project created successfully:', newProject);
+      success('Project created successfully!', 'Your project has been created and is now active.');
+      setShowCreateProject(false);
+      await loadDAODetails(selectedDAO.id); // Refresh project list
     } catch (err) {
       console.error('❌ Failed to create project:', err);
       showError('Failed to create project', 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  // View Project Details
+  const handleViewProjectDetails = (project: DAOProject) => {
+    setSelectedProject(project);
+    setShowProjectDetails(true);
   };
 
   // Create Proposal
@@ -335,16 +317,12 @@ export default function DAOPage() {
       setLoading(true);
       
       console.log('🔥 Creating proposal with data:', data);
-      const response = await daoApi.createProposal(selectedDAO.id, data);
+      const newProposal = await daoApi.createProposal(selectedDAO.id, data);
       
-      if (response.success) {
-        console.log('✅ Proposal created successfully:', response.data);
-        success('Proposal created successfully!', 'Your proposal is now active and members can vote.');
-        setShowCreateProposal(false);
-        await loadDAODetails(selectedDAO.id); // Refresh proposal list
-      } else {
-        showError('Failed to create proposal', response.message || 'Please check your input and try again.');
-      }
+      console.log('✅ Proposal created successfully:', newProposal);
+      success('Proposal created successfully!', 'Your proposal is now active and members can vote.');
+      setShowCreateProposal(false);
+      await loadDAODetails(selectedDAO.id); // Refresh proposal list
     } catch (err) {
       console.error('❌ Failed to create proposal:', err);
       showError('Failed to create proposal', 'An unexpected error occurred. Please try again.');
@@ -364,18 +342,14 @@ export default function DAOPage() {
       setLoading(true);
       
       console.log('🔥 Voting on proposal:', { proposalId, voteType });
-      const response = await daoApi.voteOnProposal(proposalId, {
+      const voteResult = await daoApi.voteOnProposal(proposalId, {
         voteType,
         reason: '' // Could add a reason input in the future
       });
       
-      if (response.success) {
-        console.log('✅ Vote submitted successfully');
-        success('Vote submitted successfully!', `Your ${voteType} vote has been recorded.`);
-        await loadDAODetails(selectedDAO.id); // Refresh to show updated vote counts
-      } else {
-        showError('Failed to submit vote', response.message || 'Please try again.');
-      }
+      console.log('✅ Vote submitted successfully');
+      success('Vote submitted successfully!', `Your ${voteType} vote has been recorded.`);
+      await loadDAODetails(selectedDAO.id); // Refresh to show updated vote counts
     } catch (err) {
       console.error('❌ Failed to vote:', err);
       showError('Failed to submit vote', 'An unexpected error occurred. Please try again.');
@@ -388,13 +362,9 @@ export default function DAOPage() {
   const handleJoinDAO = async (daoId: string) => {
     try {
       setLoading(true);
-      const response = await daoApi.joinDAO(daoId);
-      if (response.success) {
-        // Reload DAO list
-        await loadDAOs();
-      } else {
-        setError(response.message);
-      }
+      const joinResult = await daoApi.joinDAO(daoId);
+      // Reload DAO list
+      await loadDAOs();
     } catch (err) {
       console.error('Failed to join DAO:', err);
       setError('Failed to join DAO');
@@ -844,7 +814,7 @@ export default function DAOPage() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div>
                       <p className="text-sm text-muted-foreground">Total Budget</p>
                       <p className="font-semibold">{formatCurrency(project.totalBudget)}</p>
@@ -861,6 +831,32 @@ export default function DAOPage() {
                       <p className="text-sm text-muted-foreground">Start Date</p>
                       <p className="font-semibold">{formatDate(project.startDate)}</p>
                     </div>
+                  </div>
+                  
+                  {/* Token Reward and Progress */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center space-x-4">
+                      {project.tokenReward && project.tokenReward > 0 && (
+                        <div className="flex items-center space-x-1 text-sm">
+                          <Coins className="h-4 w-4 text-purple-600" />
+                          <span className="text-muted-foreground">Token Reward:</span>
+                          <span className="font-semibold text-purple-600">{project.tokenReward} {selectedDAO?.governanceToken}</span>
+                        </div>
+                      )}
+                      {project.milestones && project.milestones.length > 0 && (
+                        <div className="text-sm text-muted-foreground">
+                          {project.milestones.filter((m: any) => m.status === 'COMPLETED').length}/{project.milestones.length} milestones completed
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleViewProjectDetails(project)}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      查看详情
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -1083,7 +1079,7 @@ export default function DAOPage() {
             proposals={proposals}
             projects={projects}
             members={members}
-            treasury={treasury}
+            treasury={treasuryTransactions}
           />
         )}
       </div>
@@ -1121,6 +1117,17 @@ export default function DAOPage() {
         isOpen={showCreateProposal}
         onClose={() => setShowCreateProposal(false)}
         onSuccess={handleCreateProposal}
+      />
+
+      {/* Project Details Modal */}
+      <ProjectDetailsModal
+        isOpen={showProjectDetails}
+        onClose={() => {
+          setShowProjectDetails(false);
+          setSelectedProject(null);
+        }}
+        project={selectedProject}
+        daoToken={selectedDAO?.governanceToken || 'TOKEN'}
       />
       
       {/* Toast Container */}

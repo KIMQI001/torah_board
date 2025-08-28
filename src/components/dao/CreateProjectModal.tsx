@@ -21,6 +21,7 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
     totalBudget: '',
     startDate: '',
     expectedEndDate: '',
+    tokenReward: '',
     riskLevel: 'MEDIUM' as 'LOW' | 'MEDIUM' | 'HIGH',
     teamMembers: ['']
   });
@@ -64,6 +65,7 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
       const cleanedData = {
         ...formData,
         totalBudget: parseFloat(formData.totalBudget) || 0,
+        tokenReward: parseFloat(formData.tokenReward) || 0,
         teamMembers: formData.teamMembers.filter(member => member.trim() !== '')
       };
 
@@ -77,6 +79,7 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
         totalBudget: '',
         startDate: '',
         expectedEndDate: '',
+        tokenReward: '',
         riskLevel: 'MEDIUM',
         teamMembers: ['']
       });
@@ -98,6 +101,7 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
         totalBudget: '',
         startDate: '',
         expectedEndDate: '',
+        tokenReward: '',
         riskLevel: 'MEDIUM',
         teamMembers: ['']
       });
@@ -181,7 +185,7 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
             <div className="space-y-4">
               <h3 className="text-lg font-medium">Budget &amp; Timeline</h3>
               
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="totalBudget">Total Budget (SOL)</Label>
                   <Input
@@ -197,6 +201,26 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
                   />
                 </div>
                 
+                <div>
+                  <Label htmlFor="tokenReward">Token Reward</Label>
+                  <Input
+                    id="tokenReward"
+                    name="tokenReward"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.tokenReward}
+                    onChange={handleInputChange}
+                    placeholder="0.00"
+                    disabled={isSubmitting}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Governance tokens earned upon project completion
+                  </p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label htmlFor="startDate">Start Date</Label>
                   <Input

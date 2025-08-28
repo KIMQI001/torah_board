@@ -85,13 +85,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // 1. 获取认证消息
       console.log('AuthContext: 请求认证消息...');
-      const messageResponse = await authApi.generateAuthMessage(walletAddress);
-      console.log('AuthContext: 认证消息响应:', messageResponse);
-      if (!messageResponse.success) {
-        throw new Error('获取认证消息失败: ' + (messageResponse.message || '未知错误'));
+      const messageData = await authApi.generateAuthMessage(walletAddress);
+      console.log('AuthContext: 认证消息响应:', messageData);
+      
+      if (!messageData || !messageData.message) {
+        throw new Error('获取认证消息失败: 响应数据无效');
       }
 
-      const { message } = messageResponse.data;
+      const { message } = messageData;
       console.log('AuthContext: 需要签名的消息:', message);
 
       // 2. 使用钱包签名
@@ -128,23 +129,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
         message: message.substring(0, 50) + '...'
       });
       
-      const authResponse = await authApi.authenticate(
+      const authData = await authApi.authenticate(
         walletAddress,
         walletAddress, // publicKey 和 walletAddress 相同
         signature,
         message
       );
-      console.log('AuthContext: 认证响应:', authResponse);
+      console.log('AuthContext: 认证响应:', authData);
 
-      if (!authResponse.success) {
-        throw new Error(authResponse.message || '认证失败');
+      if (!authData || !authData.token) {
+        throw new Error('认证失败: 响应数据无效');
       }
 
       // 4. 保存 token 和用户信息
       console.log('AuthContext: 保存认证信息...');
-      setAuthToken(authResponse.data.token);
+      setAuthToken(authData.token);
       updateState({
-        user: authResponse.data.user,
+        user: authData.user,
         isAuthenticated: true,
         isLoading: false,
       });
@@ -185,10 +186,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      const response = await authApi.verify();
-      if (response.success) {
+      const userData = await authApi.verify();
+      if (userData && userData.user) {
         updateState({
-          user: response.data.user,
+          user: userData.user,
           isAuthenticated: true,
           isLoading: false, // 重要：设置加载完成
         });

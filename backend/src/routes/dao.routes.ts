@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { DAOController } from '@/controllers/dao.controller';
 import { DAOProposalsController } from '@/controllers/dao-proposals.controller';
 import { DAOProjectsController } from '@/controllers/dao-projects.controller';
+import { DAOTasksController } from '@/controllers/dao-tasks.controller';
 import { DAOTreasuryController } from '@/controllers/dao-treasury.controller';
 import { DAOMembersController } from '@/controllers/dao-members.controller';
 import { authenticate } from '@/middleware/auth';
@@ -53,6 +54,7 @@ const daoSchemas = {
     totalBudget: Joi.number().min(0).required(),
     roi: Joi.number().optional(),
     riskLevel: Joi.string().valid('LOW', 'MEDIUM', 'HIGH').required(),
+    tokenReward: Joi.number().min(0).optional(),
     teamMembers: Joi.array().items(Joi.string()).optional(),
     startDate: Joi.date().required(),
     expectedEndDate: Joi.date().greater(Joi.ref('startDate')).required(),
@@ -136,8 +138,34 @@ const daoSchemas = {
   updateContributionScore: Joi.object({
     contributionScore: Joi.number().min(0).required(),
     reason: Joi.string().max(500).optional()
+  }),
+  
+  createTask: Joi.object({
+    title: Joi.string().required().min(5).max(200),
+    description: Joi.string().required().min(10).max(1000),
+    priority: Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'URGENT').optional(),
+    assigneeId: Joi.string().allow('', null).optional(),
+    costEstimate: Joi.number().min(0).default(0),
+    tokenReward: Joi.number().min(0).default(0),
+    dueDate: Joi.date().optional().allow(null),
+    tags: Joi.array().items(Joi.string()).optional().allow(null)
+  }),
+  
+  updateTask: Joi.object({
+    title: Joi.string().min(5).max(200).optional(),
+    description: Joi.string().min(10).max(1000).optional(),
+    status: Joi.string().valid('TODO', 'IN_PROGRESS', 'REVIEW', 'COMPLETED').optional(),
+    priority: Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'URGENT').optional(),
+    assigneeId: Joi.string().optional(),
+    costEstimate: Joi.number().min(0).optional(),
+    tokenReward: Joi.number().min(0).optional(),
+    dueDate: Joi.date().optional(),
+    completedDate: Joi.date().optional(),
+    attachments: Joi.array().items(Joi.string()).optional(),
+    tags: Joi.array().items(Joi.string()).optional()
   })
 };
+
 
 // DAO Management Routes
 router.get('/daos', authenticate, DAOController.getDAOs);
@@ -175,6 +203,14 @@ router.put('/daos/:daoId/members/:memberId/role', authenticate, validate(daoSche
 router.put('/daos/:daoId/members/:memberId/voting-power', authenticate, validate(daoSchemas.updateVotingPower), DAOMembersController.updateVotingPower);
 router.put('/daos/:daoId/members/:memberId/contribution-score', authenticate, validate(daoSchemas.updateContributionScore), DAOMembersController.updateContributionScore);
 router.delete('/daos/:daoId/members/:memberId', authenticate, DAOMembersController.removeMember);
+
+// Task Routes  
+router.get('/projects/:projectId/tasks', authenticate, DAOTasksController.getTasks);
+router.get('/tasks/:id', authenticate, DAOTasksController.getTask);
+router.post('/projects/:projectId/tasks', authenticate, validate(daoSchemas.createTask), DAOTasksController.createTask);
+router.put('/tasks/:id', authenticate, validate(daoSchemas.updateTask), DAOTasksController.updateTask);
+router.delete('/tasks/:id', authenticate, DAOTasksController.deleteTask);
+
 
 // Treasury Routes
 router.get('/daos/:daoId/treasury/transactions', authenticate, DAOTreasuryController.getTreasuryTransactions);

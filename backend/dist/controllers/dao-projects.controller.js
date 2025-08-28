@@ -80,7 +80,7 @@ class DAOProjectsController {
                 return;
             }
             const { daoId } = req.params;
-            const { title, description, category, totalBudget, roi, riskLevel, teamMembers, startDate, expectedEndDate, milestones } = req.body;
+            const { title, description, category, totalBudget, roi, riskLevel, tokenReward, teamMembers, startDate, expectedEndDate, milestones } = req.body;
             logger_1.Logger.info('Creating project', {
                 daoId,
                 userId,
@@ -120,6 +120,7 @@ class DAOProjectsController {
                     totalBudget,
                     roi: roi || 0,
                     riskLevel: riskLevel.toUpperCase(),
+                    tokenReward: tokenReward || 0,
                     teamMembers: JSON.stringify(teamMembers || []),
                     startDate: new Date(startDate),
                     expectedEndDate: new Date(expectedEndDate),
