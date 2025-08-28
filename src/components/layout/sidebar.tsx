@@ -60,7 +60,7 @@ const sidebarItems = [
   },
   {
     key: "nav.dao",
-    href: "/dao",
+    href: "/dao/browse",
     icon: Users,
   },
 ]
@@ -84,7 +84,7 @@ export function Sidebar() {
                 href={item.href}
                 className={cn(
                   "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                  pathname === item.href
+                  pathname === item.href || (item.href === '/dao/browse' && pathname.startsWith('/dao'))
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground"
                 )}

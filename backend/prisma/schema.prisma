@@ -22,6 +22,7 @@ model User {
   // Relations
   nodes           UserNode[]
   roiCalculations ROICalculation[]
+  daoMemberships  DAOMember[]
   
   @@map("users")
 }
@@ -129,4 +130,191 @@ model SystemNotification {
   createdAt   DateTime @default(now())
   
   @@map("system_notifications")
+}
+
+// DAO Models
+model DAO {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  description     String
+  treasuryAddress String
+  governanceToken String
+  totalSupply     Float    @default(0)
+  quorumThreshold Float    @default(50) // percentage
+  votingPeriod    Int      @default(7) // days
+  status          String   @default("ACTIVE") // 'ACTIVE', 'PAUSED', 'DISSOLVED'
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  proposals       DAOProposal[]
+  projects        DAOProject[]
+  members         DAOMember[]
+  treasury        DAOTreasury[]
+  distributions   DAODistribution[]
+  
+  @@map("daos")
+}
+
+model DAOProposal {
+  id              String   @id @default(cuid())
+  daoId           String
+  title           String
+  description     String
+  proposer        String
+  status          String   @default("DRAFT") // 'DRAFT', 'ACTIVE', 'PASSED', 'FAILED', 'EXECUTED', 'CANCELLED'
+  category        String   // 'INVESTMENT', 'GOVERNANCE', 'TREASURY', 'MEMBERSHIP'
+  requestedAmount Float?
+  votesFor        Float    @default(0)
+  votesAgainst    Float    @default(0)
+  votesAbstain    Float    @default(0)
+  totalVotes      Float    @default(0)
+  quorum          Float
+  threshold       Float    @default(60)
+  startTime       DateTime
+  endTime         DateTime
+  executionTime   DateTime?
+  discussion      String?
+  attachments     String?  // JSON array
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
+  votes           DAOVote[]
+  
+  @@map("dao_proposals")
+}
+
+model DAOProject {
+  id              String   @id @default(cuid())
+  daoId           String
+  title           String
+  description     String
+  status          String   @default("PLANNING") // 'PLANNING', 'ACTIVE', 'MILESTONE_PENDING', 'COMPLETED', 'CANCELLED'
+  category        String
+  totalBudget     Float
+  allocatedFunds  Float    @default(0)
+  spentFunds      Float    @default(0)
+  roi             Float    @default(0)
+  riskLevel       String   // 'LOW', 'MEDIUM', 'HIGH'
+  teamMembers     String   // JSON array
+  startDate       DateTime
+  expectedEndDate DateTime
+  completedDate   DateTime?
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
+  milestones      DAOMilestone[]
+  
+  @@map("dao_projects")
+}
+
+model DAOMilestone {
+  id              String   @id @default(cuid())
+  projectId       String
+  title           String
+  description     String
+  targetDate      DateTime
+  completedDate   DateTime?
+  budget          Float
+  status          String   @default("PENDING") // 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'VERIFIED', 'PAID'
+  deliverables    String   // JSON array
+  verificationReq Float    @default(51) // percentage of voting power needed
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  project         DAOProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@map("dao_milestones")
+}
+
+model DAOMember {
+  id              String   @id @default(cuid())
+  daoId           String
+  userId          String
+  address         String
+  role            String   @default("MEMBER") // 'ADMIN', 'MEMBER', 'CONTRIBUTOR', 'OBSERVER'
+  votingPower     Float    @default(0)
+  reputation      Float    @default(50)
+  contributionScore Float  @default(0)
+  delegatedTo     String?
+  delegatedFrom   String?  // JSON array
+  proposalsCreated Int     @default(0)
+  votesParticipated Int    @default(0)
+  joinDate        DateTime @default(now())
+  lastActivity    DateTime @default(now())
+  status          String   @default("ACTIVE") // 'ACTIVE', 'INACTIVE', 'SUSPENDED'
+  
+  // Relations
+  dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votes           DAOVote[]
+  
+  @@unique([daoId, userId])
+  @@map("dao_members")
+}
+
+model DAOVote {
+  id              String   @id @default(cuid())
+  proposalId      String
+  memberId        String
+  voteType        String   // 'FOR', 'AGAINST', 'ABSTAIN'
+  votingPower     Float
+  reason          String?
+  timestamp       DateTime @default(now())
+  
+  // Relations
+  proposal        DAOProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  member          DAOMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  
+  @@unique([proposalId, memberId])
+  @@map("dao_votes")
+}
+
+model DAOTreasury {
+  id              String   @id @default(cuid())
+  daoId           String
+  type            String   // 'DEPOSIT', 'WITHDRAWAL', 'INVESTMENT', 'REWARD', 'FEE', 'MILESTONE_PAYMENT'
+  amount          Float
+  token           String
+  from            String?
+  to              String?
+  description     String
+  proposalId      String?
+  projectId       String?
+  txHash          String?
+  status          String   @default("PENDING") // 'PENDING', 'CONFIRMED', 'FAILED'
+  timestamp       DateTime @default(now())
+  
+  // Relations
+  dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
+  
+  @@map("dao_treasury")
+}
+
+model DAODistribution {
+  id              String   @id @default(cuid())
+  daoId           String
+  name            String
+  method          String   // 'TOKEN_HOLDING', 'CONTRIBUTION', 'EQUAL', 'CUSTOM'
+  frequency       String   // 'DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY'
+  isActive        Boolean  @default(true)
+  totalDistributed Float   @default(0)
+  eligibleMembers Int      @default(0)
+  lastDistribution DateTime?
+  nextDistribution DateTime
+  rules           String?  // JSON configuration
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
+  
+  @@map("dao_distributions")
 }

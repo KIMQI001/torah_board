@@ -12,466 +12,320 @@ import {
   Timer, Zap, Activity, PieChart, TrendingDown,
   Globe, Briefcase, CreditCard, History, BookOpen,
   ChevronRight, PlayCircle, PauseCircle, XCircle,
-  Coins, Percent, Wallet2, RefreshCw, Download
+  Coins, Percent, Wallet2, RefreshCw, Download,
+  Loader2
 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
-import { useState, useEffect } from "react";
-import { daoStore, Proposal, Project, Member } from "@/components/dao/dao-store";
-import type { Vote } from "@/components/dao/dao-store";
-import { CreateProposalModal } from "@/components/dao/create-proposal-modal";
-import { CreateProjectModal } from "@/components/dao/create-project-modal";
-import { ConfirmationDialog } from "@/components/dao/confirmation-dialog";
-import { ToastContainer, useToast } from "@/components/dao/toast";
-import { SolanaWallet } from "@/components/dao/solana-wallet";
-
-// Enhanced types for DAO management
-type ProposalStatus = 'draft' | 'active' | 'passed' | 'failed' | 'executed' | 'cancelled';
-type ProjectStatus = 'planning' | 'active' | 'milestone_pending' | 'completed' | 'cancelled';
-type MemberRole = 'admin' | 'member' | 'contributor' | 'observer';
-type TransactionType = 'deposit' | 'withdrawal' | 'investment' | 'reward' | 'fee' | 'milestone_payment';
-type VoteType = 'for' | 'against' | 'abstain';
-type DistributionMethod = 'token_holding' | 'contribution' | 'equal' | 'custom';
-
-interface Proposal {
-  id: string;
-  title: string;
-  description: string;
-  proposer: string;
-  status: ProposalStatus;
-  votingPower: {
-    for: number;
-    against: number;
-    abstain: number;
-    total: number;
-  };
-  quorum: number;
-  threshold: number;
-  startTime: Date;
-  endTime: Date;
-  executionTime?: Date;
-  requestedAmount?: number;
-  category: 'investment' | 'governance' | 'treasury' | 'membership';
-  attachments?: string[];
-  discussion?: string;
-}
-
-interface Project {
-  id: string;
-  title: string;
-  description: string;
-  status: ProjectStatus;
-  totalBudget: number;
-  allocatedFunds: number;
-  spentFunds: number;
-  milestones: Milestone[];
-  teamMembers: string[];
-  startDate: Date;
-  expectedEndDate: Date;
-  category: string;
-  roi: number;
-  riskLevel: 'low' | 'medium' | 'high';
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  description: string;
-  targetDate: Date;
-  completedDate?: Date;
-  budget: number;
-  status: 'pending' | 'in_progress' | 'completed' | 'verified' | 'paid';
-  deliverables: string[];
-  verificationRequirement: number; // percentage of voting power needed
-}
-
-interface Member {
-  id: string;
-  address: string;
-  role: MemberRole;
-  votingPower: number;
-  reputation: number;
-  joinDate: Date;
-  lastActivity: Date;
-  contributionScore: number;
-  delegatedTo?: string;
-  delegatedFrom: string[];
-  proposalsCreated: number;
-  votesParticipated: number;
-}
-
-interface TreasuryTransaction {
-  id: string;
-  type: TransactionType;
-  amount: number;
-  token: string;
-  from?: string;
-  to?: string;
-  description: string;
-  timestamp: Date;
-  proposalId?: string;
-  projectId?: string;
-  hash?: string;
-  status: 'pending' | 'confirmed' | 'failed';
-}
-
-interface DistributionRule {
-  id: string;
-  name: string;
-  method: DistributionMethod;
-  frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly';
-  isActive: boolean;
-  totalDistributed: number;
-  lastDistribution?: Date;
-  nextDistribution: Date;
-  eligibleMembers: number;
-}
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useSearchParams } from 'next/navigation';
+import Link from "next/link";
+import { daoApi, healthApi, DAO, DAOProposal, DAOProject, DAOMember, DAOTreasury } from "@/lib/api";
+import { WalletButton } from "@/components/wallet/WalletButton";
+import { CreateDAOModal } from "@/components/dao/CreateDAOModal";
+import { ToastContainer } from "@/components/ui/toast-container";
+import { useToast } from "@/hooks/use-toast";
 
 export default function DAOPage() {
   const { t } = useLanguage();
+  const { isAuthenticated, user } = useAuth();
+  const searchParams = useSearchParams();
+  const targetDAOId = searchParams.get('id');
+  const { toasts, success, error: showError, removeToast } = useToast();
+  
+  // Debug authentication status (reduced logging)
+  // console.log('🔥 DAO Page Auth Status:', {
+  //   isAuthenticated,
+  //   hasUser: !!user,
+  //   userId: user?.id,
+  //   userWallet: user?.walletAddress
+  // });
+
+  // Simplified health check (only on initial mount)
+  useEffect(() => {
+    let mounted = true;
+    
+    const checkBackendHealth = async () => {
+      try {
+        const health = await healthApi.checkBackend();
+        if (!health.success && !isAuthenticated && mounted) {
+          console.error('🚨 Backend health check failed:', health.error);
+          setError(`Backend connection failed: ${health.error}`);
+        }
+      } catch (err) {
+        console.error('🚨 Health check error:', err);
+      }
+    };
+    
+    checkBackendHealth();
+    
+    return () => {
+      mounted = false;
+    };
+  }, []); // Run only once on mount
   const [activeTab, setActiveTab] = useState('overview');
-  const [selectedProposal, setSelectedProposal] = useState<string | null>(null);
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Safety mechanism to prevent infinite loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn('⚠️ Loading timeout reached, forcing loading to false');
+        setLoading(false);
+      }
+    }, 30000); // 30 second timeout
+    
+    return () => clearTimeout(timeout);
+  }, [loading]);
+  
+  // DAO State
+  const [daos, setDAOs] = useState<DAO[]>([]);
+  const [selectedDAO, setSelectedDAO] = useState<DAO | null>(null);
+  const [proposals, setProposals] = useState<DAOProposal[]>([]);
+  const [projects, setProjects] = useState<DAOProject[]>([]);
+  const [members, setMembers] = useState<DAOMember[]>([]);
+  const [treasuryTransactions, setTreasuryTransactions] = useState<DAOTreasury[]>([]);
+  const [treasuryBalance, setTreasuryBalance] = useState<any>(null);
+  const [daoStats, setDAOStats] = useState<any>(null);
+  
+  // UI State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showCreateProposal, setShowCreateProposal] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [showCreateDAO, setShowCreateDAO] = useState(false);
   
-  // New state for functionality
-  const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState<{
-    isOpen: boolean;
-    type: 'delete' | 'vote' | 'execute' | 'cancel';
-    title?: string;
-    message?: string;
-    onConfirm?: () => void;
-  }>({ isOpen: false, type: 'delete' });
-  const [voteAction, setVoteAction] = useState<{
-    proposalId: string;
-    voteType: 'for' | 'against' | 'abstain';
-  } | null>(null);
-  
-  const toast = useToast();
-
-  // Load data on component mount
-  useEffect(() => {
-    setProposals(daoStore.getProposals());
-    setProjects(daoStore.getProjects());
-    setMembers(daoStore.getMembers());
-  }, []);
 
   const tabs = [
     { id: 'overview', label: t('dao.overview'), icon: BarChart },
     { id: 'projects', label: t('dao.projects'), icon: Briefcase },
-    { id: 'revenue', label: t('dao.revenueDistribution'), icon: Coins },
     { id: 'governance', label: t('dao.governance'), icon: VoteIcon },
     { id: 'treasury', label: t('dao.treasury'), icon: Vault },
     { id: 'members', label: t('dao.members'), icon: Users },
     { id: 'analytics', label: t('dao.analytics'), icon: PieChart }
   ];
 
-  // Data filtering and searching
-  const filteredProposals = proposals.filter(proposal => {
-    const matchesSearch = !searchQuery || 
-      proposal.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      proposal.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter = filterStatus === 'all' || proposal.status === filterStatus;
-    return matchesSearch && matchesFilter;
-  });
-
-  const filteredProjects = projects.filter(project => {
-    const matchesSearch = !searchQuery || 
-      project.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter = filterStatus === 'all' || project.status === filterStatus;
-    return matchesSearch && matchesFilter;
-  });
-
-  const filteredMembers = members.filter(member => {
-    const matchesSearch = !searchQuery || 
-      member.address.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
-
-  // Event handlers
-  const handleCreateProposal = (proposal: Proposal) => {
-    setProposals([...proposals, proposal]);
-    toast.success(t('dao.proposalCreated'), t('dao.proposalCreatedDesc'));
-  };
-
-  const handleCreateProject = (project: Project) => {
-    setProjects([...projects, project]);
-    toast.success(t('dao.projectCreated'), t('dao.projectCreatedDesc'));
-  };
-
-  const handleVote = (proposalId: string, voteType: 'for' | 'against' | 'abstain') => {
-    setVoteAction({ proposalId, voteType });
-    setConfirmDialog({
-      isOpen: true,
-      type: 'vote',
-      title: `${t('dao.confirmVote')}: ${voteType.toUpperCase()}`,
-      message: t('dao.voteWarning'),
-      onConfirm: () => confirmVote(proposalId, voteType)
-    });
-  };
-
-  const confirmVote = (proposalId: string, voteType: 'for' | 'against' | 'abstain') => {
-    const vote: Vote = {
-      id: daoStore.generateId(),
-      proposalId,
-      voter: 'current-user-address',
-      voteType,
-      votingPower: 25000, // From mock wallet
-      timestamp: new Date()
-    };
+  // Load user's DAOs
+  const loadDAOs = useCallback(async () => {
+    console.log('🔥 loadDAOs called:', { isAuthenticated, userId: user?.id });
     
-    daoStore.addVote(vote);
+    if (!isAuthenticated || !user) {
+      console.log('❌ Not authenticated or no user, skipping loadDAOs');
+      return;
+    }
     
-    // Update proposal voting power
-    const updatedProposals = proposals.map(proposal => {
-      if (proposal.id === proposalId) {
-        const newVotingPower = { ...proposal.votingPower };
-        newVotingPower[voteType] += vote.votingPower;
-        newVotingPower.total += vote.votingPower;
-        return { ...proposal, votingPower: newVotingPower };
-      }
-      return proposal;
-    });
-    
-    setProposals(updatedProposals);
-    daoStore.setProposals(updatedProposals);
-    
-    toast.success(t('dao.voteSubmitted'), `Your ${voteType} vote has been recorded`);
-    setConfirmDialog({ isOpen: false, type: 'delete' });
-  };
-
-  const handleDeleteProposal = (id: string) => {
-    setConfirmDialog({
-      isOpen: true,
-      type: 'delete',
-      title: t('dao.deleteProposal'),
-      message: t('common.deleteWarning'),
-      onConfirm: () => {
-        daoStore.deleteProposal(id);
-        setProposals(proposals.filter(p => p.id !== id));
-        toast.success(t('dao.proposalDeleted'));
-        setConfirmDialog({ isOpen: false, type: 'delete' });
-      }
-    });
-  };
-
-  const handleDeleteProject = (id: string) => {
-    setConfirmDialog({
-      isOpen: true,
-      type: 'delete',
-      title: t('dao.deleteProject'),
-      message: t('common.deleteWarning'),
-      onConfirm: () => {
-        daoStore.deleteProject(id);
-        setProjects(projects.filter(p => p.id !== id));
-        toast.success(t('dao.projectDeleted'));
-        setConfirmDialog({ isOpen: false, type: 'delete' });
-      }
-    });
-  };
-
-  const exportData = () => {
     try {
-      const dataStr = daoStore.exportData();
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      const dateStr = new Date().toISOString().split('T')[0];
-      link.download = `dao-data-${dateStr}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      toast.success(t('dao.dataExported'));
-    } catch (error) {
-      toast.error(t('dao.exportError'));
-    }
-  };
-
-  const importData = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        const success = daoStore.importData(content);
-        if (success) {
-          setProposals(daoStore.getProposals());
-          setProjects(daoStore.getProjects());
-          setMembers(daoStore.getMembers());
-          toast.success(t('dao.dataImported'));
-        } else {
-          toast.error(t('dao.importError'));
+      setLoading(true);
+      setError(null);
+      
+      // Always load user's DAOs (user can only manage DAOs they're members of)
+      console.log('🔥 Calling daoApi.getDAOs with userId:', user.id);
+      const response = await daoApi.getDAOs(user.id);
+      
+      console.log('✅ getDAOs response:', response);
+      
+      if (response.success) {
+        setDAOs(response.data);
+        console.log('📊 DAOs loaded:', response.data.length);
+        
+        // Auto-select DAO based on URL parameter or first available DAO
+        if (response.data.length > 0) {
+          let daoToSelect = response.data[0]; // Default to first DAO
+          
+          // If there's a target DAO ID from URL, try to find and select it
+          if (targetDAOId) {
+            const foundDAO = response.data.find(dao => dao.id === targetDAOId);
+            if (foundDAO) {
+              daoToSelect = foundDAO;
+              console.log('🎯 Found target DAO from URL:', foundDAO.name);
+            } else {
+              console.warn('⚠️ Target DAO not found or user is not a member, falling back to first DAO');
+            }
+          }
+          
+          if (!selectedDAO || selectedDAO.id !== daoToSelect.id) {
+            setSelectedDAO(daoToSelect);
+            console.log('🎯 Selected DAO:', daoToSelect.name);
+          }
         }
-      } catch (error) {
-        toast.error(t('dao.importError'));
+      } else {
+        console.error('❌ getDAOs failed:', response.message);
+        setError(response.message);
       }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
+    } catch (err) {
+      console.error('💥 loadDAOs exception:', err);
+      setError('Failed to load DAOs');
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated, user, targetDAOId]);
+
+  // Load DAO details
+  const loadDAODetails = useCallback(async (daoId: string) => {
+    if (!isAuthenticated) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [
+        daoResponse,
+        proposalsResponse,
+        projectsResponse,
+        membersResponse,
+        statsResponse
+      ] = await Promise.all([
+        daoApi.getDAO(daoId),
+        daoApi.getProposals(daoId),
+        daoApi.getProjects(daoId),
+        daoApi.getMembers(daoId),
+        daoApi.getDAOStats(daoId)
+      ]);
+
+      if (daoResponse.success) {
+        setSelectedDAO(daoResponse.data);
+      }
+      if (proposalsResponse.success) {
+        setProposals(proposalsResponse.data);
+      }
+      if (projectsResponse.success) {
+        setProjects(projectsResponse.data);
+      }
+      if (membersResponse.success) {
+        setMembers(membersResponse.data);
+      }
+      if (statsResponse.success) {
+        setDAOStats(statsResponse.data);
+      }
+      
+    } catch (err) {
+      console.error('Failed to load DAO details:', err);
+      setError('Failed to load DAO details');
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  // Load treasury data
+  const loadTreasuryData = useCallback(async (daoId: string) => {
+    if (!isAuthenticated) return;
+    
+    try {
+      const [balanceResponse, transactionsResponse] = await Promise.all([
+        daoApi.getTreasuryBalance(daoId),
+        daoApi.getTreasuryTransactions(daoId)
+      ]);
+
+      if (balanceResponse.success) {
+        setTreasuryBalance(balanceResponse.data);
+      }
+      if (transactionsResponse.success) {
+        setTreasuryTransactions(transactionsResponse.data);
+      }
+    } catch (err) {
+      console.error('Failed to load treasury data:', err);
+    }
+  }, [isAuthenticated]);
+
+  // Initial data loading
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      loadDAOs();
+    }
+  }, [isAuthenticated, user?.id]); // Only depend on auth state and user ID
+
+  // Load DAO details when selectedDAO changes
+  useEffect(() => {
+    if (selectedDAO?.id) {
+      loadDAODetails(selectedDAO.id);
+      loadTreasuryData(selectedDAO.id);
+    }
+  }, [selectedDAO?.id]); // Only depend on the DAO ID, not the functions
+
+  // Create DAO
+  const handleCreateDAO = async (data: any) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('🔥 Creating DAO with data:', data);
+      
+      const response = await daoApi.createDAO({
+        name: data.name,
+        description: data.description,
+        treasuryAddress: data.treasuryAddress,
+        governanceToken: data.governanceToken,
+        totalSupply: data.totalSupply || 1000000,
+        quorumThreshold: data.quorumThreshold,
+        votingPeriod: data.votingPeriod
+      });
+      
+      if (response.success) {
+        console.log('✅ DAO created successfully:', response.data);
+        
+        success('DAO created successfully!', 'Your new DAO has been created and you are now an admin.');
+        
+        // Refresh DAO list
+        await loadDAOs();
+        
+        // Select the newly created DAO
+        setSelectedDAO(response.data);
+        setShowCreateDAO(false);
+        
+        console.log('🎉 DAO creation completed!');
+      } else {
+        showError('Failed to create DAO', response.message || 'Please check your input and try again.');
+      }
+      
+    } catch (err) {
+      console.error('❌ Failed to create DAO:', err);
+      showError('Failed to create DAO', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Enhanced mock data with dynamic data
-  const mockProjects: Project[] = projects.length > 0 ? projects : [
-    {
-      id: 'proj-001',
-      title: 'NFT Marketplace Development',
-      description: 'Build a decentralized NFT marketplace with low fees and creator royalties',
-      status: 'active',
-      totalBudget: 750000,
-      allocatedFunds: 300000,
-      spentFunds: 150000,
-      startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
-      expectedEndDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
-      category: 'Product Development',
-      roi: 18.5,
-      riskLevel: 'medium',
-      teamMembers: ['0x1111', '0x2222', '0x3333'],
-      milestones: [
-        {
-          id: 'ms-001',
-          title: 'MVP Development',
-          description: 'Core marketplace functionality',
-          targetDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-          completedDate: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000),
-          budget: 150000,
-          status: 'paid',
-          deliverables: ['Smart contracts', 'Frontend interface', 'Testing suite'],
-          verificationRequirement: 51
-        },
-        {
-          id: 'ms-002',
-          title: 'Security Audit & Beta Launch',
-          description: 'Third-party audit and limited beta testing',
-          targetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          budget: 100000,
-          status: 'in_progress',
-          deliverables: ['Audit report', 'Beta platform', 'User feedback analysis'],
-          verificationRequirement: 51
+  // Join DAO
+  const handleJoinDAO = async (daoId: string) => {
+    try {
+      setLoading(true);
+      const response = await daoApi.joinDAO(daoId);
+      if (response.success) {
+        // Reload DAO list
+        await loadDAOs();
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      console.error('Failed to join DAO:', err);
+      setError('Failed to join DAO');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Vote on proposal
+  const handleVote = async (proposalId: string, voteType: 'FOR' | 'AGAINST' | 'ABSTAIN') => {
+    try {
+      setLoading(true);
+      const response = await daoApi.voteOnProposal(proposalId, { voteType });
+      if (response.success) {
+        // Reload proposals
+        if (selectedDAO) {
+          const proposalsResponse = await daoApi.getProposals(selectedDAO.id);
+          if (proposalsResponse.success) {
+            setProposals(proposalsResponse.data);
+          }
         }
-      ]
-    },
-    {
-      id: 'proj-002',
-      title: 'DeFi Yield Farming Protocol',
-      description: 'Develop an innovative yield farming protocol with auto-compounding features',
-      status: 'planning',
-      totalBudget: 1200000,
-      allocatedFunds: 0,
-      spentFunds: 0,
-      startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      expectedEndDate: new Date(Date.now() + 240 * 24 * 60 * 60 * 1000),
-      category: 'DeFi',
-      roi: 25.0,
-      riskLevel: 'high',
-      teamMembers: ['0x4444', '0x5555'],
-      milestones: []
-    }
-  ];
-
-  const mockProposals: Proposal[] = proposals.length > 0 ? proposals : [
-    {
-      id: 'prop-001',
-      title: 'DeFi Protocol Investment - $500K',
-      description: 'Proposal to invest in a new DeFi lending protocol with projected 15% APY',
-      proposer: '0x1234...5678',
-      status: 'active',
-      votingPower: { for: 75000, against: 25000, abstain: 10000, total: 110000 },
-      quorum: 100000,
-      threshold: 60,
-      startTime: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-      endTime: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-      requestedAmount: 500000,
-      category: 'investment',
-      discussion: 'https://forum.dao.org/proposal-001'
-    }
-  ];
-
-  const mockMembers: Member[] = members.length > 0 ? members : [
-    {
-      id: 'member-001',
-      address: '0x1234567890abcdef',
-      role: 'admin',
-      votingPower: 25000,
-      reputation: 95,
-      joinDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-      lastActivity: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      contributionScore: 88,
-      delegatedFrom: ['0x5555', '0x6666'],
-      proposalsCreated: 12,
-      votesParticipated: 45
-    }
-  ];
-
-  const mockDistributionRules: DistributionRule[] = [
-    {
-      id: 'dist-001',
-      name: 'Monthly Token Holder Distribution',
-      method: 'token_holding',
-      frequency: 'monthly',
-      isActive: true,
-      totalDistributed: 125000,
-      lastDistribution: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
-      nextDistribution: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
-      eligibleMembers: 248
-    }
-  ];
-
-  const mockTreasuryData = {
-    totalValue: 2580000,
-    availableFunds: 1850000,
-    lockedFunds: 730000,
-    monthlyIncome: 65000,
-    monthlyExpenses: 38000,
-    assets: [
-      { symbol: 'USDC', amount: 1200000, percentage: 46.5 },
-      { symbol: 'ETH', amount: 800000, percentage: 31.0 },
-      { symbol: 'BTC', amount: 380000, percentage: 14.7 },
-      { symbol: 'USDT', amount: 200000, percentage: 7.8 }
-    ]
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-      case 'in_progress':
-        return 'bg-green-500/10 text-green-600';
-      case 'completed':
-      case 'verified':
-      case 'paid':
-        return 'bg-blue-500/10 text-blue-600';
-      case 'pending':
-        return 'bg-yellow-500/10 text-yellow-600';
-      case 'cancelled':
-      case 'failed':
-        return 'bg-red-500/10 text-red-600';
-      case 'paused':
-        return 'bg-orange-500/10 text-orange-600';
-      default:
-        return 'bg-gray-500/10 text-gray-600';
-    }
-  };
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case 'low':
-        return 'bg-green-500/10 text-green-600';
-      case 'medium':
-        return 'bg-yellow-500/10 text-yellow-600';
-      case 'high':
-        return 'bg-red-500/10 text-red-600';
-      default:
-        return 'bg-gray-500/10 text-gray-600';
+      } else {
+        setError(response.message);
+      }
+    } catch (err) {
+      console.error('Failed to vote:', err);
+      setError('Failed to vote');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -483,19 +337,158 @@ export default function DAOPage() {
     }).format(amount);
   };
 
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
   };
 
-  const calculateProgress = (spent: number, total: number) => {
-    return Math.round((spent / total) * 100);
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return 'bg-green-500/10 text-green-600';
+      case 'completed':
+      case 'executed':
+        return 'bg-blue-500/10 text-blue-600';
+      case 'pending':
+      case 'draft':
+        return 'bg-yellow-500/10 text-yellow-600';
+      case 'cancelled':
+      case 'failed':
+        return 'bg-red-500/10 text-red-600';
+      default:
+        return 'bg-gray-500/10 text-gray-600';
+    }
   };
 
-  // Tab content renderers
+  // Authentication guard
+  if (!isAuthenticated) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col items-center justify-center min-h-[600px] space-y-4">
+          <Wallet2 className="h-16 w-16 text-muted-foreground" />
+          <h2 className="text-2xl font-semibold">Connect Your Wallet</h2>
+          <p className="text-muted-foreground text-center max-w-md">
+            Please connect your Solana wallet to access DAO functionality and manage your decentralized organizations.
+          </p>
+          <WalletButton />
+        </div>
+      </div>
+    );
+  }
+
+  // Loading state
+  if (loading && daos.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[600px] space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <p>Loading DAOs...</p>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    const isBackendError = error.includes('Backend connection failed') || error.includes('Network connection failed');
+    const isRateLimitError = error.includes('Too many requests') || error.includes('429');
+    
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[600px] space-y-4">
+        <AlertTriangle className="h-16 w-16 text-red-500" />
+        <h2 className="text-2xl font-semibold text-red-600">
+          {isRateLimitError ? '请求过于频繁' : '连接错误'}
+        </h2>
+        <p className="text-muted-foreground text-center max-w-md">{error}</p>
+        
+        {isRateLimitError && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md">
+            <h3 className="font-semibold text-blue-800 mb-2">提示:</h3>
+            <ul className="text-sm text-blue-700 space-y-1">
+              <li>• 请稍等片刻后再试</li>
+              <li>• 后端已启用请求频率限制</li>
+              <li>• 开发模式下已放宽限制</li>
+            </ul>
+          </div>
+        )}
+        
+        {isBackendError && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-md">
+            <h3 className="font-semibold text-yellow-800 mb-2">解决方案:</h3>
+            <ul className="text-sm text-yellow-700 space-y-1">
+              <li>• 确保后端服务器运行在 http://localhost:3002</li>
+              <li>• 检查网络连接</li>
+              <li>• 运行命令: <code className="bg-yellow-100 px-1 rounded">npm run dev</code> (在 backend 目录)</li>
+            </ul>
+          </div>
+        )}
+        
+        <div className="flex space-x-2">
+          <Button onClick={() => { setError(null); loadDAOs(); }}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            重试
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={async () => {
+              const health = await healthApi.checkBackend();
+              if (health.success) {
+                setError(null);
+                loadDAOs();
+              } else {
+                setError(`Health check failed: ${health.error}`);
+              }
+            }}
+          >
+            <Activity className="h-4 w-4 mr-2" />
+            检查后端
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // No DAOs state
+  if (daos.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col items-center justify-center min-h-[600px] space-y-4">
+          <Users className="h-16 w-16 text-muted-foreground" />
+          <h2 className="text-2xl font-semibold">No DAOs Found</h2>
+          <p className="text-muted-foreground text-center max-w-md">
+            You haven't joined any DAOs yet. Create a new DAO or join an existing one to get started.
+          </p>
+          <div className="flex space-x-2">
+            <Button onClick={() => {
+              console.log('Create DAO button clicked');
+              setShowCreateDAO(true);
+            }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create DAO
+            </Button>
+            <Link href="/dao/browse">
+              <Button variant="outline">
+                <Search className="h-4 w-4 mr-2" />
+                Browse DAOs
+              </Button>
+            </Link>
+          </div>
+        </div>
+        
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 flex items-center space-x-3">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Processing...</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const renderOverviewTab = () => (
     <div className="space-y-6">
       {/* Key Metrics */}
@@ -504,12 +497,12 @@ export default function DAOPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold text-blue-600">{formatCurrency(mockTreasuryData.totalValue)}</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  {daoStats ? formatCurrency(daoStats.treasuryBalance?.USDC || 0) : '--'}
+                </div>
                 <p className="text-sm text-muted-foreground">{t('dao.treasuryValue')}</p>
               </div>
-              <div className="text-right">
-                <div className="text-green-500 text-sm font-medium">+12%</div>
-              </div>
+              <Vault className="h-8 w-8 text-blue-600" />
             </div>
           </CardContent>
         </Card>
@@ -518,12 +511,10 @@ export default function DAOPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{projects.length}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.projects')}</p>
+                <div className="text-2xl font-bold">{daoStats?.activeProjects || 0}</div>
+                <p className="text-sm text-muted-foreground">{t('dao.activeProjects')}</p>
               </div>
-              <div className="text-right">
-                <div className="text-green-500 text-sm font-medium">+{projects.filter(p => p.status === 'active').length}</div>
-              </div>
+              <Briefcase className="h-8 w-8 text-green-600" />
             </div>
           </CardContent>
         </Card>
@@ -532,12 +523,10 @@ export default function DAOPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{members.length + 245}</div>
+                <div className="text-2xl font-bold">{daoStats?.memberCount || 0}</div>
                 <p className="text-sm text-muted-foreground">{t('dao.totalMembers')}</p>
               </div>
-              <div className="text-right">
-                <div className="text-green-500 text-sm font-medium">+{members.length}</div>
-              </div>
+              <Users className="h-8 w-8 text-purple-600" />
             </div>
           </CardContent>
         </Card>
@@ -546,16 +535,49 @@ export default function DAOPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{proposals.length}</div>
+                <div className="text-2xl font-bold">{daoStats?.activeProposals || 0}</div>
                 <p className="text-sm text-muted-foreground">{t('dao.activeProposals')}</p>
               </div>
-              <div className="text-right">
-                <div className="text-green-500 text-sm font-medium">+{proposals.filter(p => p.status === 'active').length}</div>
-              </div>
+              <VoteIcon className="h-8 w-8 text-orange-600" />
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* DAO Information */}
+      {selectedDAO && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>{selectedDAO.name}</span>
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedDAO.status)}`}>
+                {selectedDAO.status}
+              </span>
+            </CardTitle>
+            <CardDescription>{selectedDAO.description}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Governance Token</p>
+                <p className="font-semibold">{selectedDAO.governanceToken}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Supply</p>
+                <p className="font-semibold">{selectedDAO.totalSupply.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Quorum Threshold</p>
+                <p className="font-semibold">{selectedDAO.quorumThreshold}%</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Voting Period</p>
+                <p className="font-semibold">{selectedDAO.votingPeriod} days</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Activity */}
       <Card>
@@ -567,292 +589,26 @@ export default function DAOPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div className="flex items-start space-x-4 p-4 rounded-lg border">
-              <div className="flex-shrink-0">
-                <div className="w-2 h-2 rounded-full bg-green-500 mt-2"></div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-medium">{t('dao.milestoneComplete')}</h4>
-                  <span className="text-xs text-muted-foreground">2 {t('dao.lastMonth')}</span>
+            {proposals.slice(0, 3).map((proposal) => (
+              <div key={proposal.id} className="flex items-start space-x-4 p-4 rounded-lg border">
+                <div className="flex-shrink-0">
+                  <div className={`w-2 h-2 rounded-full mt-2 ${
+                    proposal.status === 'ACTIVE' ? 'bg-green-500' : 
+                    proposal.status === 'EXECUTED' ? 'bg-blue-500' : 'bg-gray-300'
+                  }`}></div>
                 </div>
-                <p className="text-sm text-muted-foreground mt-1">NFT Marketplace MVP completed and verified by community</p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-4 p-4 rounded-lg border">
-              <div className="flex-shrink-0">
-                <div className="w-2 h-2 rounded-full bg-blue-500 mt-2"></div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-medium">{t('dao.newProposal')}</h4>
-                  <span className="text-xs text-muted-foreground">5 {t('dao.lastMonth')}</span>
-                </div>
-                <p className="text-sm text-muted-foreground mt-1">DeFi Protocol investment proposal created</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderProjectsTab = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-lg font-medium">{t('dao.projectManagement')}</h3>
-          <p className="text-sm text-muted-foreground">{t('dao.projectsDesc')}</p>
-        </div>
-        <Button onClick={() => setShowCreateProject(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          {t('dao.createProject')}
-        </Button>
-      </div>
-
-      <div className="grid gap-6">
-        {filteredProjects.length === 0 ? (
-          <div className="text-center py-12">
-            <Briefcase className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">{t('dao.noActiveProjects')}</h3>
-            <p className="text-muted-foreground mb-4">Create your first project to get started</p>
-            <Button onClick={() => setShowCreateProject(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              {t('dao.createProject')}
-            </Button>
-          </div>
-        ) : filteredProjects.map((project) => (
-          <Card key={project.id} className="overflow-hidden">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <CardTitle className="flex items-center space-x-2">
-                    <span>{project.title}</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                      {t(`dao.${project.status}`)}
-                    </span>
-                  </CardTitle>
-                  <CardDescription className="mt-2">
-                    {project.description}
-                  </CardDescription>
-                </div>
-                <div className="flex space-x-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => setSelectedProject(project.id)}
-                    title="View Project Details"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => toast.info('Edit Feature', 'Project editing will be available soon')}
-                    title="Edit Project"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => handleDeleteProject(project.id)}
-                    title="Delete Project"
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">{t('dao.projectBudget')}</p>
-                  <p className="text-lg font-semibold">{formatCurrency(project.totalBudget)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">{t('dao.projectProgress')}</p>
-                  <p className="text-lg font-semibold">{calculateProgress(project.spentFunds, project.totalBudget)}%</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">{t('dao.projectROI')}</p>
-                  <p className="text-lg font-semibold text-green-600">+{project.roi}%</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">{t('dao.projectRisk')}</p>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRiskColor(project.riskLevel)}`}>
-                    {t(`dao.${project.riskLevel}`)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="mb-4">
-                <div className="flex justify-between text-sm text-muted-foreground mb-1">
-                  <span>{t('dao.projectProgress')}</span>
-                  <span>{formatCurrency(project.spentFunds)} / {formatCurrency(project.totalBudget)}</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full"
-                    style={{ width: `${calculateProgress(project.spentFunds, project.totalBudget)}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              {/* Milestones */}
-              {project.milestones.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium mb-2">{t('dao.milestones')}</h4>
-                  <div className="space-y-2">
-                    {project.milestones.map((milestone) => (
-                      <div key={milestone.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900 rounded">
-                        <div className="flex items-center space-x-2">
-                          <div className={`w-2 h-2 rounded-full ${
-                            milestone.status === 'completed' ? 'bg-green-500' :
-                            milestone.status === 'in_progress' ? 'bg-blue-500' : 
-                            'bg-gray-300'
-                          }`}></div>
-                          <span className="text-sm">{milestone.title}</span>
-                        </div>
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                          <span>{formatCurrency(milestone.budget)}</span>
-                          <span>•</span>
-                          <span>{formatDate(milestone.targetDate)}</span>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(milestone.status)}`}>
-                            {t(`dao.${milestone.status}`)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-medium">{proposal.title}</h4>
+                    <span className="text-xs text-muted-foreground">{formatDate(proposal.createdAt)}</span>
                   </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderRevenueTab = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-lg font-medium">{t('dao.revenueDistribution')}</h3>
-          <p className="text-sm text-muted-foreground">Manage revenue distribution rules and track payment history</p>
-        </div>
-        <Button>
-          <Settings className="h-4 w-4 mr-2" />
-          {t('dao.distributionSettings')}
-        </Button>
-      </div>
-
-      {/* Distribution Overview */}
-      <div className="grid gap-6 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold text-green-600">{formatCurrency(mockDistributionRules[0].totalDistributed)}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.totalDistributed')}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">{mockDistributionRules[0].eligibleMembers}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.participatingMembers')}</p>
-              </div>
-              <Users className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">{formatCurrency(15000)}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.yourShare')}</p>
-              </div>
-              <Wallet2 className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">{formatDate(mockDistributionRules[0].nextDistribution)}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.nextDistribution')}</p>
-              </div>
-              <Calendar className="h-8 w-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Distribution Rules */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Settings className="h-5 w-5" />
-            <span>{t('dao.distributionRules')}</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {mockDistributionRules.map((rule) => (
-              <div key={rule.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex-1">
-                  <h4 className="font-medium">{rule.name}</h4>
-                  <div className="flex items-center space-x-4 mt-2 text-sm text-muted-foreground">
-                    <span>{t(`dao.${rule.method.replace('_', '')}`)}</span>
-                    <span>•</span>
-                    <span>{rule.frequency}</span>
-                    <span>•</span>
-                    <span>{rule.eligibleMembers} {t('dao.members').toLowerCase()}</span>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(rule.totalDistributed)}</p>
-                    <p className="text-sm text-muted-foreground">{t('dao.totalDistributed')}</p>
-                  </div>
-                  <div className={`w-3 h-3 rounded-full ${rule.isActive ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{proposal.description}</p>
                 </div>
               </div>
             ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Pending Rewards */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Award className="h-5 w-5" />
-              <span>{t('dao.pendingRewards')}</span>
-            </div>
-            <Button
-              onClick={() => toast.success('Rewards Claimed', 'You have successfully claimed $15,000 in rewards')}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              {t('dao.claimRewards')}
-            </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8">
-            <Award className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">{formatCurrency(15000)} Available</h3>
-            <p className="text-muted-foreground">Your rewards from the last distribution cycle</p>
+            {proposals.length === 0 && (
+              <p className="text-center text-muted-foreground py-8">No recent activity</p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -866,176 +622,174 @@ export default function DAOPage() {
           <h3 className="text-lg font-medium">{t('dao.governance')}</h3>
           <p className="text-sm text-muted-foreground">Create and vote on governance proposals</p>
         </div>
-        <Button onClick={() => setShowCreateProposal(true)}>
+        <Button onClick={() => setShowCreateProposal(true)} disabled={!selectedDAO}>
           <Plus className="h-4 w-4 mr-2" />
           {t('dao.createNewProposal')}
         </Button>
       </div>
 
-      {/* Voting Stats */}
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">45,000</div>
-                <p className="text-sm text-muted-foreground">{t('dao.myVotingPower')}</p>
-              </div>
-              <VoteIcon className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">89%</div>
-                <p className="text-sm text-muted-foreground">{t('dao.participationRate')}</p>
-              </div>
-              <UserCheck className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">2.1d</div>
-                <p className="text-sm text-muted-foreground">{t('dao.averageVotingTime')}</p>
-              </div>
-              <Timer className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Active Proposals */}
+      {/* Proposals List */}
       <Card>
         <CardHeader>
-          <CardTitle>{t('dao.activeProposals')}</CardTitle>
+          <CardTitle>{t('dao.proposals')}</CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredProposals.length === 0 ? (
+          {proposals.length === 0 ? (
             <div className="text-center py-8">
               <VoteIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium mb-2">{t('dao.noActiveProposals')}</h3>
-              <p className="text-muted-foreground mb-4">{t('dao.noProposalsDesc')}</p>
-              <Button onClick={() => setShowCreateProposal(true)}>
+              <h3 className="text-lg font-medium mb-2">No proposals yet</h3>
+              <p className="text-muted-foreground mb-4">Create the first proposal to get started</p>
+              <Button onClick={() => setShowCreateProposal(true)} disabled={!selectedDAO}>
                 <Plus className="h-4 w-4 mr-2" />
-                {t('dao.createFirstProposal')}
+                Create Proposal
               </Button>
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Search and Filter for Proposals */}
-              <div className="flex space-x-4 mb-4">
-                <div className="relative flex-1 max-w-sm">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
-                    className="w-full pl-10 pr-4 py-2 border rounded-md text-sm"
-                    placeholder="Search proposals..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                <select
-                  className="px-3 py-2 border rounded-md text-sm"
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                >
-                  <option value="all">All Status</option>
-                  <option value="draft">Draft</option>
-                  <option value="active">Active</option>
-                  <option value="passed">Passed</option>
-                  <option value="failed">Failed</option>
-                  <option value="executed">Executed</option>
-                </select>
-              </div>
-
-              {filteredProposals.map((proposal) => (
+              {proposals.map((proposal) => (
                 <div key={proposal.id} className="border rounded-lg p-4">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <h4 className="font-medium">{proposal.title}</h4>
-                    <p className="text-sm text-muted-foreground mt-1">{proposal.description}</p>
-                    <div className="flex items-center space-x-4 mt-2 text-sm text-muted-foreground">
-                      <span>{t('dao.proposer')}: {proposal.proposer}</span>
-                      <span>•</span>
-                      <span>{t('dao.timeLeft')}: {Math.ceil((proposal.endTime.getTime() - Date.now()) / (24 * 60 * 60 * 1000))} days</span>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h4 className="font-medium">{proposal.title}</h4>
+                      <p className="text-sm text-muted-foreground mt-1">{proposal.description}</p>
+                      <div className="flex items-center space-x-4 mt-2 text-sm text-muted-foreground">
+                        <span>Proposer: {proposal.proposer.slice(0, 6)}...{proposal.proposer.slice(-4)}</span>
+                        <span>•</span>
+                        <span>Ends: {formatDate(proposal.votingEndDate)}</span>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(proposal.status)}`}>
+                      {proposal.status}
+                    </span>
+                  </div>
+
+                  {/* Voting Progress */}
+                  <div className="space-y-2 mb-4">
+                    <div className="flex justify-between text-sm">
+                      <span>For: {proposal.votesFor.toLocaleString()}</span>
+                      <span>{proposal.totalVotes > 0 ? ((proposal.votesFor / proposal.totalVotes) * 100).toFixed(1) : 0}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-green-500 h-2 rounded-full"
+                        style={{ width: `${proposal.totalVotes > 0 ? (proposal.votesFor / proposal.totalVotes) * 100 : 0}%` }}
+                      ></div>
+                    </div>
+                    
+                    <div className="flex justify-between text-sm">
+                      <span>Against: {proposal.votesAgainst.toLocaleString()}</span>
+                      <span>{proposal.totalVotes > 0 ? ((proposal.votesAgainst / proposal.totalVotes) * 100).toFixed(1) : 0}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-red-500 h-2 rounded-full"
+                        style={{ width: `${proposal.totalVotes > 0 ? (proposal.votesAgainst / proposal.totalVotes) * 100 : 0}%` }}
+                      ></div>
                     </div>
                   </div>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(proposal.status)}`}>
-                    {t(`dao.${proposal.status}`)}
-                  </span>
-                </div>
 
-                {/* Voting Progress */}
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between text-sm">
-                    <span>{t('dao.forVotes')}: {proposal.votingPower.for.toLocaleString()}</span>
-                    <span>{((proposal.votingPower.for / proposal.votingPower.total) * 100).toFixed(1)}%</span>
+                  {/* Action Buttons */}
+                  <div className="flex space-x-2">
+                    <Button 
+                      size="sm" 
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => handleVote(proposal.id, 'FOR')}
+                      disabled={proposal.status !== 'ACTIVE' || loading}
+                    >
+                      <ThumbsUp className="h-4 w-4 mr-1" />
+                      Support
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="border-red-200 text-red-600 hover:bg-red-50"
+                      onClick={() => handleVote(proposal.id, 'AGAINST')}
+                      disabled={proposal.status !== 'ACTIVE' || loading}
+                    >
+                      <ThumbsDown className="h-4 w-4 mr-1" />
+                      Against
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => handleVote(proposal.id, 'ABSTAIN')}
+                      disabled={proposal.status !== 'ACTIVE' || loading}
+                    >
+                      Abstain
+                    </Button>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-green-500 h-2 rounded-full"
-                      style={{ width: `${(proposal.votingPower.for / proposal.votingPower.total) * 100}%` }}
-                    ></div>
-                  </div>
-                  
-                  <div className="flex justify-between text-sm">
-                    <span>{t('dao.againstVotes')}: {proposal.votingPower.against.toLocaleString()}</span>
-                    <span>{((proposal.votingPower.against / proposal.votingPower.total) * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-red-500 h-2 rounded-full"
-                      style={{ width: `${(proposal.votingPower.against / proposal.votingPower.total) * 100}%` }}
-                    ></div>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex space-x-2">
-                  <Button 
-                    size="sm" 
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={() => handleVote(proposal.id, 'for')}
-                    disabled={proposal.status !== 'active'}
-                  >
-                    <ThumbsUp className="h-4 w-4 mr-1" />
-                    {t('dao.support')}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="border-red-200 text-red-600 hover:bg-red-50"
-                    onClick={() => handleVote(proposal.id, 'against')}
-                    disabled={proposal.status !== 'active'}
-                  >
-                    <ThumbsDown className="h-4 w-4 mr-1" />
-                    {t('dao.against')}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => handleVote(proposal.id, 'abstain')}
-                    disabled={proposal.status !== 'active'}
-                  >
-                    {t('dao.abstain')}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => handleDeleteProposal(proposal.id)}
-                    className="text-red-600 hover:text-red-700"
-                    title="Delete Proposal"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
                 </div>
               ))}
-          </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderProjectsTab = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h3 className="text-lg font-medium">{t('dao.projectManagement')}</h3>
+          <p className="text-sm text-muted-foreground">Manage DAO projects and milestones</p>
+        </div>
+        <Button onClick={() => setShowCreateProject(true)} disabled={!selectedDAO}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create Project
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('dao.projects')}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {projects.length === 0 ? (
+            <div className="text-center py-8">
+              <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No projects yet</h3>
+              <p className="text-muted-foreground mb-4">Create the first project to get started</p>
+              <Button onClick={() => setShowCreateProject(true)} disabled={!selectedDAO}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Project
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {projects.map((project) => (
+                <div key={project.id} className="border rounded-lg p-4">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h4 className="font-medium">{project.title}</h4>
+                      <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
+                      {project.status}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Budget</p>
+                      <p className="font-semibold">{formatCurrency(project.totalBudget)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Allocated</p>
+                      <p className="font-semibold">{formatCurrency(project.allocatedFunds)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Spent</p>
+                      <p className="font-semibold">{formatCurrency(project.spentFunds)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Start Date</p>
+                      <p className="font-semibold">{formatDate(project.startDate)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -1049,139 +803,68 @@ export default function DAOPage() {
           <h3 className="text-lg font-medium">{t('dao.treasuryManagement')}</h3>
           <p className="text-sm text-muted-foreground">Monitor and manage DAO treasury funds</p>
         </div>
-        <div className="flex space-x-2">
-          <Button 
-            variant="outline"
-            onClick={() => toast.info('Withdraw Feature', 'Treasury withdrawal will be available soon')}
-          >
-            <ArrowDownRight className="h-4 w-4 mr-2" />
-            {t('dao.withdraw')}
-          </Button>
-          <Button
-            onClick={() => toast.info('Deposit Feature', 'Treasury deposit will be available soon')}
-          >
-            <ArrowUpRight className="h-4 w-4 mr-2" />
-            {t('dao.deposit')}
-          </Button>
-          <Button 
-            variant="outline"
-            onClick={exportData}
-            title="Export DAO Data"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
-          <label className="cursor-pointer">
-            <input
-              type="file"
-              accept=".json"
-              onChange={importData}
-              className="hidden"
-            />
-            <Button variant="outline" asChild>
-              <span>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Import
-              </span>
-            </Button>
-          </label>
-        </div>
       </div>
 
-      {/* Treasury Overview */}
-      <div className="grid gap-6 md:grid-cols-3">
+      {/* Treasury Balance */}
+      {treasuryBalance && (
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">{formatCurrency(mockTreasuryData.totalValue)}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.portfolioValue')}</p>
-              </div>
-              <div className="text-right">
-                <div className="text-green-500 text-sm font-medium">+12.5%</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">{formatCurrency(mockTreasuryData.availableFunds)}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.availableBalance')}</p>
-              </div>
-              <Wallet2 className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">{formatCurrency(mockTreasuryData.lockedFunds)}</div>
-                <p className="text-sm text-muted-foreground">{t('dao.lockedBalance')}</p>
-              </div>
-              <Lock className="h-8 w-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Asset Allocation */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <PieChart className="h-5 w-5" />
-            <span>{t('dao.assetAllocation')}</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {mockTreasuryData.assets.map((asset) => (
-              <div key={asset.symbol} className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                    <span className="text-xs font-medium">{asset.symbol}</span>
+          <CardHeader>
+            <CardTitle>Treasury Balance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {treasuryBalance.balance.map((asset: any) => (
+                <div key={asset.token} className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                      <span className="text-xs font-medium">{asset.token}</span>
+                    </div>
+                    <span className="font-medium">{asset.token}</span>
                   </div>
-                  <span className="font-medium">{asset.symbol}</span>
-                </div>
-                <div className="flex items-center space-x-4">
                   <div className="text-right">
-                    <div className="font-semibold">{formatCurrency(asset.amount)}</div>
-                    <div className="text-sm text-muted-foreground">{asset.percentage}%</div>
-                  </div>
-                  <div className="w-16 bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full"
-                      style={{ width: `${asset.percentage}%` }}
-                    ></div>
+                    <div className="font-semibold">{asset.amount.toLocaleString()}</div>
+                    <div className="text-sm text-muted-foreground">${asset.usdValue.toLocaleString()}</div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Monthly Flow */}
+      {/* Recent Transactions */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <TrendingUp className="h-5 w-5" />
-            <span>{t('dao.monthlyFlow')}</span>
-          </CardTitle>
+          <CardTitle>Recent Transactions</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(mockTreasuryData.monthlyIncome)}</div>
-              <p className="text-sm text-muted-foreground">{t('dao.income')}</p>
+          {treasuryTransactions.length === 0 ? (
+            <div className="text-center py-8">
+              <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No transactions yet</h3>
+              <p className="text-muted-foreground">Treasury transactions will appear here</p>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-red-600">{formatCurrency(mockTreasuryData.monthlyExpenses)}</div>
-              <p className="text-sm text-muted-foreground">{t('dao.expenses')}</p>
+          ) : (
+            <div className="space-y-4">
+              {treasuryTransactions.map((tx) => (
+                <div key={tx.id} className="flex items-center justify-between p-3 border rounded">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-2 h-2 rounded-full ${getStatusColor(tx.status).replace('bg-', 'bg-').replace('/10', '')}`}></div>
+                    <div>
+                      <p className="font-medium">{tx.type}</p>
+                      <p className="text-sm text-muted-foreground">{formatDate(tx.timestamp)}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">{tx.amount} {tx.token}</p>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(tx.status)}`}>
+                      {tx.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -1192,239 +875,52 @@ export default function DAOPage() {
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-lg font-medium">{t('dao.memberManagement')}</h3>
-          <p className="text-sm text-muted-foreground">Manage DAO members, roles, and permissions</p>
+          <p className="text-sm text-muted-foreground">Manage DAO members and roles</p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          {t('dao.inviteMembers')}
-        </Button>
       </div>
 
-      {/* Member Stats */}
-      <div className="grid gap-6 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">248</div>
-                <p className="text-sm text-muted-foreground">{t('dao.totalMembers')}</p>
-              </div>
-              <Users className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">186</div>
-                <p className="text-sm text-muted-foreground">{t('dao.activeMembers')}</p>
-              </div>
-              <UserCheck className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">1.2M</div>
-                <p className="text-sm text-muted-foreground">{t('dao.totalGovernanceTokens')}</p>
-              </div>
-              <Coins className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold">87.5</div>
-                <p className="text-sm text-muted-foreground">{t('dao.averageScore')}</p>
-              </div>
-              <Award className="h-8 w-8 text-yellow-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Member List */}
       <Card>
         <CardHeader>
-          <CardTitle>{t('dao.membersList')}</CardTitle>
-          <div className="flex space-x-2">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input
-                className="w-full pl-10 pr-4 py-2 border rounded-md text-sm"
-                placeholder={t('common.search')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <Button variant="outline" size="sm">
-              <Filter className="h-4 w-4" />
-            </Button>
-          </div>
+          <CardTitle>Members ({members.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {filteredMembers.length === 0 ? (
-              <div className="text-center py-8">
-                <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">{t('dao.noMembers')}</h3>
-                <p className="text-muted-foreground mb-4">{t('dao.noMembersDesc')}</p>
-                <Button onClick={() => toast.info('Invite Feature', 'Member invitation will be available soon')}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  {t('dao.inviteMembers')}
-                </Button>
-              </div>
-            ) : (
-              filteredMembers.map((member) => (
-              <div key={member.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center space-x-4">
-                  <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                    <span className="text-white text-sm font-medium">
-                      {member.address.substring(2, 4).toUpperCase()}
-                    </span>
-                  </div>
-                  <div>
-                    <h4 className="font-medium">{member.address}</h4>
-                    <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        member.role === 'admin' ? 'bg-purple-100 text-purple-800' :
-                        member.role === 'member' ? 'bg-blue-100 text-blue-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {t(`dao.${member.role}`)}
+          {members.length === 0 ? (
+            <div className="text-center py-8">
+              <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No members yet</h3>
+              <p className="text-muted-foreground">Members will appear here once they join</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {members.map((member) => (
+                <div key={member.id} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="flex items-center space-x-4">
+                    <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                      <span className="text-white text-sm font-medium">
+                        {member.address.substring(0, 2).toUpperCase()}
                       </span>
-                      <span>•</span>
-                      <span>{member.votingPower.toLocaleString()} {t('dao.votingPower')}</span>
-                      <span>•</span>
-                      <span>{t('dao.reputation')}: {member.reputation}</span>
+                    </div>
+                    <div>
+                      <h4 className="font-medium">{member.address.slice(0, 6)}...{member.address.slice(-4)}</h4>
+                      <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          member.role === 'ADMIN' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {member.role}
+                        </span>
+                        <span>•</span>
+                        <span>Voting Power: {member.votingPower.toLocaleString()}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center space-x-2">
                   <div className="text-right text-sm">
-                    <div className="font-medium">{member.contributionScore}</div>
-                    <div className="text-muted-foreground">{t('dao.contributionScore')}</div>
+                    <div className="font-medium">Score: {member.contributionScore}</div>
+                    <div className="text-muted-foreground">Reputation: {member.reputation}</div>
                   </div>
-                  <Button variant="outline" size="sm">
-                    <Edit3 className="h-4 w-4" />
-                  </Button>
                 </div>
-              </div>
-            )))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderAnalyticsTab = () => (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-medium">{t('dao.daoAnalytics')}</h3>
-        <p className="text-sm text-muted-foreground">Comprehensive insights into DAO performance and activity</p>
-      </div>
-
-      {/* Performance Metrics */}
-      <div className="grid gap-6 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold text-green-600">78%</div>
-                <p className="text-sm text-muted-foreground">{t('dao.proposalSuccess')}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600" />
+              ))}
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold text-blue-600">+34%</div>
-                <p className="text-sm text-muted-foreground">{t('dao.treasuryGrowth')}</p>
-              </div>
-              <ArrowUpRight className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold text-purple-600">89%</div>
-                <p className="text-sm text-muted-foreground">{t('dao.participationRate')}</p>
-              </div>
-              <UserCheck className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold text-orange-600">2.1d</div>
-                <p className="text-sm text-muted-foreground">{t('dao.averageVotingTime')}</p>
-              </div>
-              <Timer className="h-8 w-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Activity Chart Placeholder */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Activity className="h-5 w-5" />
-            <span>{t('dao.memberActivity')}</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-64 bg-gray-50 dark:bg-gray-900 rounded-lg flex items-center justify-center">
-            <div className="text-center">
-              <BarChart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">Activity chart visualization will be implemented here</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Top Contributors */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Award className="h-5 w-5" />
-            <span>{t('dao.topContributors')}</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {mockMembers.slice(0, 3).map((member, index) => (
-              <div key={member.id} className="flex items-center space-x-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold ${
-                  index === 0 ? 'bg-yellow-500' :
-                  index === 1 ? 'bg-gray-400' :
-                  'bg-orange-600'
-                }`}>
-                  {index + 1}
-                </div>
-                <div className="flex-1">
-                  <h4 className="font-medium">{member.address}</h4>
-                  <p className="text-sm text-muted-foreground">{member.contributionScore} contribution points</p>
-                </div>
-                <div className="text-right">
-                  <div className="font-semibold">{member.proposalsCreated}</div>
-                  <div className="text-sm text-muted-foreground">proposals</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -1437,22 +933,46 @@ export default function DAOPage() {
         <div>
           <h1 className="text-3xl font-bold">{t('dao.title')}</h1>
           <p className="text-muted-foreground">
-            {t('dao.subtitle')}
+            {selectedDAO ? `Managing ${selectedDAO.name}` : 'Decentralized Autonomous Organization Management'}
           </p>
         </div>
         <div className="flex space-x-2">
-          <Button variant="outline">
-            <VoteIcon className="h-4 w-4 mr-2" />
-            {t('dao.createProposal')}
-          </Button>
-          <Button>
-            <Users className="h-4 w-4 mr-2" />
-            {t('dao.joinDAO')}
+          <Link href="/dao/browse">
+            <Button variant="outline">
+              <Search className="h-4 w-4 mr-2" />
+              Browse DAOs
+            </Button>
+          </Link>
+          <Button onClick={() => {
+            console.log('Create DAO header button clicked');
+            setShowCreateDAO(true);
+          }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create DAO
           </Button>
         </div>
       </div>
 
-      {/* Sub Navigation Tabs */}
+      {/* DAO Selector (if user has multiple DAOs) */}
+      {daos.length > 1 && (
+        <div className="flex items-center space-x-3">
+          <label className="text-sm font-medium">Current DAO:</label>
+          <select 
+            className="px-3 py-2 border rounded-md min-w-[200px]"
+            value={selectedDAO?.id || ''}
+            onChange={(e) => {
+              const dao = daos.find(d => d.id === e.target.value);
+              if (dao) setSelectedDAO(dao);
+            }}
+          >
+            {daos.map(dao => (
+              <option key={dao.id} value={dao.id}>{dao.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Tab Navigation */}
       <div className="border-b">
         <div className="flex space-x-8 overflow-x-auto pb-2">
           {tabs.map((tab) => {
@@ -1478,56 +998,51 @@ export default function DAOPage() {
       {/* Tab Content */}
       <div className="min-h-[600px]">
         {activeTab === 'overview' && renderOverviewTab()}
-        {activeTab === 'projects' && renderProjectsTab()}
-        {activeTab === 'revenue' && renderRevenueTab()}
         {activeTab === 'governance' && renderGovernanceTab()}
+        {activeTab === 'projects' && renderProjectsTab()}
         {activeTab === 'treasury' && renderTreasuryTab()}
         {activeTab === 'members' && renderMembersTab()}
-        {activeTab === 'analytics' && renderAnalyticsTab()}
+        {activeTab === 'analytics' && (
+          <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+            <BarChart className="h-16 w-16 text-muted-foreground" />
+            <h3 className="text-lg font-medium">Analytics Coming Soon</h3>
+            <p className="text-muted-foreground text-center">
+              Advanced analytics and insights will be available in the next update.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Add Solana Wallet component to Overview tab */}
-      {activeTab === 'overview' && (
-        <div className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Solana Wallet Connection</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <SolanaWallet />
-            </CardContent>
-          </Card>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 flex items-center space-x-3">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>Processing...</span>
+          </div>
         </div>
       )}
 
-      {/* Modals */}
-      <CreateProposalModal 
-        isOpen={showCreateProposal}
-        onClose={() => setShowCreateProposal(false)}
-        onSuccess={handleCreateProposal}
+      {/* Create DAO Modal */}
+      <CreateDAOModal
+        isOpen={showCreateDAO}
+        onClose={() => {
+          console.log('Closing Create DAO modal');
+          setShowCreateDAO(false);
+        }}
+        onSuccess={handleCreateDAO}
       />
-
-      <CreateProjectModal 
-        isOpen={showCreateProject}
-        onClose={() => setShowCreateProject(false)}
-        onSuccess={handleCreateProject}
-      />
-
-      <ConfirmationDialog 
-        isOpen={confirmDialog.isOpen}
-        onClose={() => setConfirmDialog({ isOpen: false, type: 'delete' })}
-        onConfirm={confirmDialog.onConfirm || (() => {})}
-        type={confirmDialog.type}
-        title={confirmDialog.title}
-        message={confirmDialog.message}
-        isLoading={loading}
-      />
-
+      
       {/* Toast Container */}
-      <ToastContainer 
-        toasts={toast.toasts}
-        onRemove={toast.removeToast}
-      />
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+      
+      {/* Debug info */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed bottom-4 right-4 bg-black text-white p-2 text-xs rounded">
+          showCreateDAO: {showCreateDAO.toString()}
+        </div>
+      )}
     </div>
   );
 }

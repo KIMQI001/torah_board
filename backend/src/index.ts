@@ -18,6 +18,7 @@ import { projectsRoutes } from '@/routes/projects.routes';
 import { nodesRoutes } from '@/routes/nodes.routes';
 import { roiRoutes } from '@/routes/roi.routes';
 import { dashboardRoutes } from '@/routes/dashboard.routes';
+import daoRoutes from '@/routes/dao.routes';
 
 // Import services
 import { SchedulerService } from '@/services/scheduler.service';
@@ -35,22 +36,31 @@ app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://your-frontend-domain.com'] 
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3005', 'http://localhost:3006'],
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 'http://localhost:3005', 'http://localhost:3006'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Rate limiting
+// Rate limiting (more lenient in development)
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // limit each IP to 100 requests per windowMs
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000'), // 1 minute in dev
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || (process.env.NODE_ENV === 'development' ? '1000' : '100')), // 1000 req/min in dev, 100 req/15min in prod
   message: {
     success: false,
     error: 'Too many requests from this IP, please try again later.'
-  }
+  },
+  standardHeaders: true, // Return rate limit info in headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
-app.use(limiter);
+
+// Only apply rate limiting in production or if explicitly enabled
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_RATE_LIMIT === 'true') {
+  app.use(limiter);
+  Logger.info('Rate limiting enabled');
+} else {
+  Logger.info('Rate limiting disabled in development');
+}
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -103,6 +113,7 @@ app.use(`/api/${API_VERSION}/projects`, projectsRoutes);
 app.use(`/api/${API_VERSION}/nodes`, nodesRoutes);
 app.use(`/api/${API_VERSION}/roi`, roiRoutes);
 app.use(`/api/${API_VERSION}/dashboard`, dashboardRoutes);
+app.use(`/api/${API_VERSION}`, daoRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

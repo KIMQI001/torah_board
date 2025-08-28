@@ -166,13 +166,21 @@ export const clearAuthToken = () => {
   }
 };
 
-// Generic API request function
+// Generic API request function with retry logic
 async function apiRequest<T>(
   endpoint: string, 
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryCount = 0,
+  maxRetries = 2
 ): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
   const token = getAuthToken();
+  
+  console.log('🔐 Auth token status:', { 
+    hasToken: !!token, 
+    tokenLength: token?.length || 0,
+    tokenPreview: token ? `${token.substring(0, 10)}...` : 'none'
+  });
   
   const config: RequestInit = {
     headers: {
@@ -184,21 +192,106 @@ async function apiRequest<T>(
   };
 
   try {
-    console.log('API请求:', { url, config });
-    const response = await fetch(url, config);
+    console.log('🔥 API请求:', { url, method: config.method || 'GET', hasAuth: !!token });
+    
+    // Test network connectivity
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    
+    const response = await fetch(url, { 
+      ...config, 
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
+      let errorText = '';
+      try {
+        errorText = await response.text();
+      } catch (e) {
+        errorText = 'Failed to read error response';
+      }
+      
+      console.error('❌ API响应错误:', {
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        errorText: errorText || 'No error text',
+        contentType: response.headers.get('content-type'),
+        retryAfter: response.headers.get('retry-after'),
+        rateLimit: response.headers.get('x-ratelimit-remaining')
+      });
+      
+      if (response.status === 429 && retryCount < maxRetries) {
+        const retryAfter = parseInt(response.headers.get('retry-after') || '1');
+        const delay = Math.min(retryAfter * 1000, 5000); // Max 5 seconds
+        
+        console.log(`⏳ Rate limited, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return apiRequest<T>(endpoint, options, retryCount + 1, maxRetries);
+      } else if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const message = retryAfter 
+          ? `Too many requests. Please wait ${retryAfter} seconds before trying again.`
+          : 'Too many requests. Please wait a moment before trying again.';
+        throw new Error(message);
+      }
+      
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
     }
     
     const data = await response.json();
-    console.log('API响应:', data);
+    console.log('✅ API响应成功:', { url, dataType: typeof data, hasData: !!data });
     return data;
   } catch (error) {
-    console.error('API请求失败:', { url, error: error.message });
-    throw error;
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('⏰ API请求超时:', { url, timeout: '10s' });
+      throw new Error('API request timed out');
+    } else if (error instanceof TypeError && error.message.includes('fetch')) {
+      console.error('🌐 网络连接失败:', { 
+        url, 
+        message: '无法连接到后端服务器',
+        possibleCauses: ['后端服务器未运行', 'CORS配置错误', '网络连接问题']
+      });
+      throw new Error('Network connection failed - backend server may be down');
+    } else {
+      console.error('💥 API请求异常:', { 
+        url, 
+        error: error instanceof Error ? error.message : String(error),
+        errorType: typeof error,
+        errorName: error instanceof Error ? error.name : 'unknown',
+        stack: error instanceof Error ? error.stack?.substring(0, 300) : undefined
+      });
+      throw error;
+    }
   }
 }
+
+// Health check API
+export const healthApi = {
+  async checkBackend() {
+    try {
+      const response = await fetch(`${API_BASE_URL.replace('/api/v1', '')}/health`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ 后端健康检查成功:', data);
+        return { success: true, data };
+      } else {
+        console.error('❌ 后端健康检查失败:', response.status, response.statusText);
+        return { success: false, error: `${response.status} ${response.statusText}` };
+      }
+    } catch (error) {
+      console.error('🌐 后端连接失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Connection failed' };
+    }
+  }
+};
 
 // Authentication API
 export const authApi = {
@@ -635,6 +728,464 @@ export class DePINWebSocket {
     }
   }
 }
+
+// DAO Types and API
+export interface DAO {
+  id: string;
+  name: string;
+  description: string;
+  treasuryAddress: string;
+  governanceToken: string;
+  totalSupply: number;
+  quorumThreshold: number;
+  votingPeriod: number;
+  status: 'ACTIVE' | 'PAUSED' | 'DISSOLVED';
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  members: DAOMember[];
+  proposals: DAOProposal[];
+  projects: DAOProject[];
+  _count: {
+    members: number;
+    proposals: number;
+    projects: number;
+  };
+}
+
+export interface DAOMember {
+  id: string;
+  daoId: string;
+  userId: string;
+  address: string;
+  role: 'ADMIN' | 'MEMBER';
+  votingPower: number;
+  reputation: number;
+  contributionScore: number;
+  joinDate: string;
+  lastActivity: string;
+  proposalsCreated: number;
+  votesParticipated: number;
+  status: 'ACTIVE' | 'INACTIVE';
+  user?: {
+    walletAddress: string;
+    createdAt: string;
+    lastLogin: string;
+  };
+  votes?: DAOVote[];
+}
+
+export interface DAOProposal {
+  id: string;
+  daoId: string;
+  proposer: string;
+  title: string;
+  description: string;
+  category: 'INVESTMENT' | 'GOVERNANCE' | 'TREASURY' | 'MEMBERSHIP';
+  status: 'DRAFT' | 'ACTIVE' | 'EXECUTED' | 'FAILED' | 'CANCELLED';
+  votesFor: number;
+  votesAgainst: number;
+  votesAbstain: number;
+  totalVotes: number;
+  quorumReached: boolean;
+  thresholdMet: boolean;
+  requestedAmount?: number;
+  requestedToken?: string;
+  recipientAddress?: string;
+  votingStartDate: string;
+  votingEndDate: string;
+  executedDate?: string;
+  createdAt: string;
+  votes?: DAOVote[];
+}
+
+export interface DAOProject {
+  id: string;
+  daoId: string;
+  title: string;
+  description: string;
+  category: string;
+  status: 'PLANNING' | 'ACTIVE' | 'MILESTONE_PENDING' | 'COMPLETED' | 'CANCELLED';
+  totalBudget: number;
+  allocatedFunds: number;
+  spentFunds: number;
+  roi?: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  teamMembers: string[];
+  startDate: string;
+  expectedEndDate: string;
+  completedDate?: string;
+  createdAt: string;
+  milestones: DAOMilestone[];
+}
+
+export interface DAOMilestone {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'VERIFIED' | 'PAID';
+  targetDate: string;
+  completedDate?: string;
+  budget: number;
+  deliverables: string[];
+  verificationReq: number;
+  createdAt: string;
+}
+
+export interface DAOVote {
+  id: string;
+  proposalId: string;
+  voterId: string;
+  voteType: 'FOR' | 'AGAINST' | 'ABSTAIN';
+  votingPower: number;
+  reason?: string;
+  timestamp: string;
+}
+
+export interface DAOTreasury {
+  id: string;
+  daoId: string;
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'INVESTMENT' | 'REWARD' | 'FEE' | 'MILESTONE_PAYMENT';
+  amount: number;
+  token: string;
+  txHash?: string;
+  recipientAddress?: string;
+  relatedProjectId?: string;
+  description?: string;
+  status: 'PENDING' | 'CONFIRMED' | 'FAILED';
+  initiatedBy: string;
+  processedBy?: string;
+  processedAt?: string;
+  timestamp: string;
+}
+
+// DAO API
+export const daoApi = {
+  // DAO Management
+  async getDAOs(userId?: string) {
+    const params = userId ? `?userId=${userId}` : '';
+    return apiRequest<DAO[]>(`/daos${params}`);
+  },
+
+  async getDAO(id: string) {
+    return apiRequest<DAO>(`/daos/${id}`);
+  },
+
+  async createDAO(data: {
+    name: string;
+    description: string;
+    treasuryAddress: string;
+    governanceToken: string;
+    totalSupply?: number;
+    quorumThreshold?: number;
+    votingPeriod?: number;
+  }) {
+    return apiRequest<DAO>('/daos', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateDAO(id: string, data: Partial<{
+    name: string;
+    description: string;
+    quorumThreshold: number;
+    votingPeriod: number;
+    status: 'ACTIVE' | 'PAUSED' | 'DISSOLVED';
+  }>) {
+    return apiRequest<DAO>(`/daos/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async joinDAO(id: string) {
+    return apiRequest<DAOMember>(`/daos/${id}/join`, {
+      method: 'POST',
+    });
+  },
+
+  async leaveDAO(id: string) {
+    return apiRequest<null>(`/daos/${id}/leave`, {
+      method: 'POST',
+    });
+  },
+
+  async deleteDAO(id: string) {
+    return apiRequest<null>(`/daos/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getDAOStats(id: string) {
+    return apiRequest<{
+      memberCount: number;
+      activeProposals: number;
+      activeProjects: number;
+      treasuryBalance: Record<string, number>;
+      totalDistributed: number;
+    }>(`/daos/${id}/stats`);
+  },
+
+  // Proposals
+  async getProposals(daoId: string, status?: string, page = 1, limit = 20) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      ...(status && { status })
+    });
+    return apiRequest<DAOProposal[]>(`/daos/${daoId}/proposals?${params}`);
+  },
+
+  async getProposal(id: string) {
+    return apiRequest<DAOProposal>(`/proposals/${id}`);
+  },
+
+  async createProposal(daoId: string, data: {
+    title: string;
+    description: string;
+    category: 'INVESTMENT' | 'GOVERNANCE' | 'TREASURY' | 'MEMBERSHIP';
+    requestedAmount?: number;
+    votingPeriodDays?: number;
+    threshold?: number;
+    discussion?: string;
+    attachments?: string[];
+  }) {
+    return apiRequest<DAOProposal>(`/daos/${daoId}/proposals`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async voteOnProposal(id: string, data: {
+    voteType: 'FOR' | 'AGAINST' | 'ABSTAIN';
+    reason?: string;
+  }) {
+    return apiRequest<DAOVote>(`/proposals/${id}/vote`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async activateProposal(id: string) {
+    return apiRequest<DAOProposal>(`/proposals/${id}/activate`, {
+      method: 'POST',
+    });
+  },
+
+  async executeProposal(id: string) {
+    return apiRequest<DAOProposal>(`/proposals/${id}/execute`, {
+      method: 'POST',
+    });
+  },
+
+  async cancelProposal(id: string) {
+    return apiRequest<DAOProposal>(`/proposals/${id}/cancel`, {
+      method: 'POST',
+    });
+  },
+
+  // Projects
+  async getProjects(daoId: string, status?: string, page = 1, limit = 20) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      ...(status && { status })
+    });
+    return apiRequest<DAOProject[]>(`/daos/${daoId}/projects?${params}`);
+  },
+
+  async getProject(id: string) {
+    return apiRequest<DAOProject>(`/projects/${id}`);
+  },
+
+  async createProject(daoId: string, data: {
+    title: string;
+    description: string;
+    category: string;
+    totalBudget: number;
+    roi?: number;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    teamMembers?: string[];
+    startDate: string;
+    expectedEndDate: string;
+    milestones?: Array<{
+      title: string;
+      description: string;
+      targetDate: string;
+      budget: number;
+      deliverables?: string[];
+      verificationReq?: number;
+    }>;
+  }) {
+    return apiRequest<DAOProject>(`/daos/${daoId}/projects`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateProject(id: string, data: Partial<DAOProject>) {
+    return apiRequest<DAOProject>(`/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteProject(id: string) {
+    return apiRequest<null>(`/projects/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Members
+  async getMembers(daoId: string, role?: string, status?: string, page = 1, limit = 50) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      ...(role && { role }),
+      ...(status && { status })
+    });
+    return apiRequest<DAOMember[]>(`/daos/${daoId}/members?${params}`);
+  },
+
+  async getMember(daoId: string, memberId: string) {
+    return apiRequest<DAOMember>(`/daos/${daoId}/members/${memberId}`);
+  },
+
+  async getMemberActivity(daoId: string, memberId: string) {
+    return apiRequest<{
+      member: DAOMember;
+      recentVotes: DAOVote[];
+      proposalsCreated: DAOProposal[];
+    }>(`/daos/${daoId}/members/${memberId}/activity`);
+  },
+
+  async updateMemberRole(daoId: string, memberId: string, role: 'ADMIN' | 'MEMBER') {
+    return apiRequest<DAOMember>(`/daos/${daoId}/members/${memberId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  async updateVotingPower(daoId: string, memberId: string, votingPower: number) {
+    return apiRequest<DAOMember>(`/daos/${daoId}/members/${memberId}/voting-power`, {
+      method: 'PUT',
+      body: JSON.stringify({ votingPower }),
+    });
+  },
+
+  async updateContributionScore(daoId: string, memberId: string, contributionScore: number, reason?: string) {
+    return apiRequest<DAOMember>(`/daos/${daoId}/members/${memberId}/contribution-score`, {
+      method: 'PUT',
+      body: JSON.stringify({ contributionScore, reason }),
+    });
+  },
+
+  async removeMember(daoId: string, memberId: string) {
+    return apiRequest<null>(`/daos/${daoId}/members/${memberId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Treasury
+  async getTreasuryTransactions(daoId: string, type?: string, status?: string, token?: string, page = 1, limit = 50) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      ...(type && { type }),
+      ...(status && { status }),
+      ...(token && { token })
+    });
+    return apiRequest<DAOTreasury[]>(`/daos/${daoId}/treasury/transactions?${params}`);
+  },
+
+  async getTreasuryBalance(daoId: string) {
+    return apiRequest<{
+      balance: Array<{
+        token: string;
+        amount: number;
+        usdValue: number;
+      }>;
+      totalValueUSD: number;
+    }>(`/daos/${daoId}/treasury/balance`);
+  },
+
+  async getTreasuryAnalytics(daoId: string, period = '30') {
+    return apiRequest<{
+      summary: {
+        totalDeposits: number;
+        totalWithdrawals: number;
+        totalInvestments: number;
+        totalRewards: number;
+        netFlow: number;
+      };
+      dailyFlow: Array<{
+        date: string;
+        deposits: number;
+        withdrawals: number;
+        investments: number;
+      }>;
+      tokenFlow: Array<{
+        token: string;
+        deposits: number;
+        withdrawals: number;
+        netFlow: number;
+      }>;
+      transactionCount: number;
+    }>(`/daos/${daoId}/treasury/analytics?period=${period}`);
+  },
+
+  async createDeposit(daoId: string, data: {
+    amount: number;
+    token: string;
+    txHash: string;
+    description?: string;
+  }) {
+    return apiRequest<DAOTreasury>(`/daos/${daoId}/treasury/deposit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createWithdrawal(daoId: string, data: {
+    amount: number;
+    token: string;
+    recipientAddress: string;
+    description?: string;
+  }) {
+    return apiRequest<DAOTreasury>(`/daos/${daoId}/treasury/withdrawal`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createInvestment(daoId: string, data: {
+    amount: number;
+    token: string;
+    projectId?: string;
+    description: string;
+  }) {
+    return apiRequest<DAOTreasury>(`/daos/${daoId}/treasury/investment`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async approveTransaction(transactionId: string, txHash?: string) {
+    return apiRequest<DAOTreasury>(`/treasury/transactions/${transactionId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ txHash }),
+    });
+  },
+
+  async rejectTransaction(transactionId: string, reason?: string) {
+    return apiRequest<DAOTreasury>(`/treasury/transactions/${transactionId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+};
 
 // Create singleton WebSocket instance
 export const depinWebSocket = new DePINWebSocket();
