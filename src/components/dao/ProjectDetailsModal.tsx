@@ -8,7 +8,8 @@ import {
   X, Calendar, DollarSign, Users, Target, Award,
   Clock, AlertTriangle, CheckCircle, Circle,
   TrendingUp, Coins, FileText, Plus, List,
-  Flag, User
+  Flag, User, MoreVertical, Edit3, Trash2, 
+  Play, Pause, Square, RotateCcw, CheckSquare
 } from 'lucide-react';
 import { DAOProject, DAOMilestone, DAOTask, daoApi } from '@/lib/api';
 import { CreateTaskModal } from './CreateTaskModal';
@@ -25,6 +26,7 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
   const [tasks, setTasks] = useState<DAOTask[]>([]);
   const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks'>('overview');
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
   useEffect(() => {
     if (project?.milestones) {
@@ -34,6 +36,18 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
       fetchTasks(project.id);
     }
   }, [project]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (openDropdown && !(event.target as Element).closest('.relative')) {
+        setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openDropdown]);
 
   const fetchTasks = async (projectId: string) => {
     try {
@@ -54,6 +68,52 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
     if (project?.id) {
       fetchTasks(project.id);
     }
+  };
+
+  // Task operations
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm('确定要删除这个任务吗？此操作无法撤销。')) {
+      return;
+    }
+    
+    try {
+      await daoApi.deleteTask(taskId);
+      console.log('✅ 任务删除成功:', taskId);
+      
+      // Refresh task list
+      if (project?.id) {
+        await fetchTasks(project.id);
+      }
+    } catch (error) {
+      console.error('❌ 删除任务失败:', error);
+      alert('删除任务失败，请重试');
+    }
+  };
+
+  const handleUpdateTaskStatus = async (taskId: string, newStatus: string) => {
+    try {
+      const updateData = { 
+        status: newStatus,
+        ...(newStatus === 'COMPLETED' ? { completedDate: new Date().toISOString() } : {})
+      };
+      
+      await daoApi.updateTask(taskId, updateData);
+      console.log('✅ 任务状态更新成功:', { taskId, newStatus });
+      
+      // Refresh task list
+      if (project?.id) {
+        await fetchTasks(project.id);
+      }
+    } catch (error) {
+      console.error('❌ 更新任务状态失败:', error);
+      alert('更新任务状态失败，请重试');
+    }
+  };
+
+  const handleEditTask = (task: any) => {
+    // TODO: 实现任务编辑功能
+    console.log('🔧 编辑任务:', task.title);
+    alert(`编辑任务功能即将实现: ${task.title}`);
   };
 
   if (!isOpen || !project) return null;
@@ -142,6 +202,35 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
       default:
         return <Circle className="h-4 w-4 text-gray-400" />;
     }
+  };
+
+  // Task status management
+  const taskStatusOptions = [
+    { value: 'TODO', label: '待办', icon: Circle, color: 'text-gray-400' },
+    { value: 'IN_PROGRESS', label: '进行中', icon: Clock, color: 'text-blue-600' },
+    { value: 'REVIEW', label: '审查中', icon: AlertTriangle, color: 'text-yellow-600' },
+    { value: 'COMPLETED', label: '已完成', icon: CheckCircle, color: 'text-green-600' }
+  ];
+
+  const getStatusLabel = (status: string) => {
+    const statusOption = taskStatusOptions.find(option => option.value === status);
+    return statusOption ? statusOption.label : status;
+  };
+
+  const getNextStatus = (currentStatus: string) => {
+    const currentIndex = taskStatusOptions.findIndex(option => option.value === currentStatus);
+    if (currentIndex < taskStatusOptions.length - 1) {
+      return taskStatusOptions[currentIndex + 1];
+    }
+    return null;
+  };
+
+  const getPrevStatus = (currentStatus: string) => {
+    const currentIndex = taskStatusOptions.findIndex(option => option.value === currentStatus);
+    if (currentIndex > 0) {
+      return taskStatusOptions[currentIndex - 1];
+    }
+    return null;
   };
 
   const formatDate = (dateString: string) => {
@@ -432,8 +521,46 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
                                   {task.priority}
                                 </Badge>
                                 <Badge className={getTaskStatusColor(task.status)}>
-                                  {task.status.replace('_', ' ')}
+                                  {getStatusLabel(task.status)}
                                 </Badge>
+                                
+                                {/* Quick Action Buttons */}
+                                <div className="flex items-center space-x-1 ml-2">
+                                  {/* Quick Next Status Button */}
+                                  {getNextStatus(task.status) && task.status !== 'COMPLETED' && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0"
+                                      title={`推进到: ${getNextStatus(task.status)?.label}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const nextStatus = getNextStatus(task.status);
+                                        if (nextStatus) {
+                                          handleUpdateTaskStatus(task.id, nextStatus.value);
+                                        }
+                                      }}
+                                    >
+                                      <Play className="h-3 w-3 text-green-600" />
+                                    </Button>
+                                  )}
+                                  
+                                  {/* Completed Task Quick Button */}
+                                  {task.status !== 'COMPLETED' && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0"
+                                      title="标记为完成"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdateTaskStatus(task.id, 'COMPLETED');
+                                      }}
+                                    >
+                                      <CheckSquare className="h-3 w-3 text-blue-600" />
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
                             </div>
                             <p className="text-sm text-gray-600 mb-3">{task.description}</p>
@@ -478,6 +605,107 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
                               </div>
                             )}
                           </div>
+                        </div>
+
+                        {/* Task Actions */}
+                        <div className="relative">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="p-1 h-8 w-8"
+                            onClick={() => setOpenDropdown(openDropdown === task.id ? null : task.id)}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+
+                          {/* Dropdown Menu */}
+                          {openDropdown === task.id && (
+                            <div className="absolute right-0 top-8 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                              <div className="py-1">
+                                {/* Quick Status Changes */}
+                                {getNextStatus(task.status) && (
+                                  <button
+                                    className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                    onClick={() => {
+                                      const nextStatus = getNextStatus(task.status);
+                                      if (nextStatus) {
+                                        handleUpdateTaskStatus(task.id, nextStatus.value);
+                                        setOpenDropdown(null);
+                                      }
+                                    }}
+                                  >
+                                    <Play className="h-4 w-4 text-green-600" />
+                                    <span>推进到: {getNextStatus(task.status)?.label}</span>
+                                  </button>
+                                )}
+
+                                {getPrevStatus(task.status) && (
+                                  <button
+                                    className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                    onClick={() => {
+                                      const prevStatus = getPrevStatus(task.status);
+                                      if (prevStatus) {
+                                        handleUpdateTaskStatus(task.id, prevStatus.value);
+                                        setOpenDropdown(null);
+                                      }
+                                    }}
+                                  >
+                                    <RotateCcw className="h-4 w-4 text-blue-600" />
+                                    <span>退回到: {getPrevStatus(task.status)?.label}</span>
+                                  </button>
+                                )}
+
+                                {/* Direct Status Selection */}
+                                <div className="border-t border-gray-200 mt-1 pt-1">
+                                  <div className="px-3 py-1 text-xs text-gray-400 uppercase tracking-wide">更改状态</div>
+                                  {taskStatusOptions.map((statusOption) => (
+                                    <button
+                                      key={statusOption.value}
+                                      className={`flex items-center space-x-2 w-full px-3 py-2 text-sm hover:bg-gray-100 ${
+                                        task.status === statusOption.value ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                                      }`}
+                                      onClick={() => {
+                                        if (task.status !== statusOption.value) {
+                                          handleUpdateTaskStatus(task.id, statusOption.value);
+                                        }
+                                        setOpenDropdown(null);
+                                      }}
+                                      disabled={task.status === statusOption.value}
+                                    >
+                                      <statusOption.icon className={`h-4 w-4 ${statusOption.color}`} />
+                                      <span>{statusOption.label}</span>
+                                      {task.status === statusOption.value && <span className="ml-auto text-xs">当前</span>}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                {/* Other Actions */}
+                                <div className="border-t border-gray-200 mt-1 pt-1">
+                                  <button
+                                    className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                    onClick={() => {
+                                      handleEditTask(task);
+                                      setOpenDropdown(null);
+                                    }}
+                                  >
+                                    <Edit3 className="h-4 w-4 text-blue-600" />
+                                    <span>编辑任务</span>
+                                  </button>
+                                  
+                                  <button
+                                    className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                                    onClick={() => {
+                                      handleDeleteTask(task.id);
+                                      setOpenDropdown(null);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    <span>删除任务</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
