@@ -137,7 +137,7 @@ async function startServer() {
         // Initialize scheduler service
         scheduler_service_1.SchedulerService.initialize();
         // Initialize WebSocket service
-        websocket_service_1.WebSocketService.initialize(WS_PORT);
+        // WebSocketService.initialize(WS_PORT); // Temporarily disabled to avoid port conflicts
         // Start HTTP server
         app.listen(PORT, () => {
             logger_1.Logger.info(`🚀 DePIN Dashboard API server running on port ${PORT}`);

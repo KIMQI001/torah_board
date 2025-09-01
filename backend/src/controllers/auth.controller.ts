@@ -144,6 +144,25 @@ export class AuthController {
         return;
       }
 
+      // 开发模式：如果是模拟用户，直接返回模拟数据，不查询数据库
+      if (process.env.NODE_ENV === 'development' && req.user.id === 'cmf0l7h1p0000vldfi9wmxwex') {
+        Logger.debug('🔧 Development mode: Returning mock user data for verify');
+        const mockUser = {
+          id: req.user.id,
+          walletAddress: req.user.walletAddress,
+          publicKey: req.user.publicKey,
+          balance: 1000, // Mock balance
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+          settings: null
+        };
+
+        ResponseUtil.success(res, {
+          user: mockUser
+        }, 'Token is valid (development mode)');
+        return;
+      }
+
       const user = await prisma.user.findUnique({
         where: { id: req.user.id },
         select: {
@@ -157,6 +176,25 @@ export class AuthController {
       });
 
       if (!user) {
+        // 开发模式：即使数据库中没有用户，也返回模拟数据
+        if (process.env.NODE_ENV === 'development') {
+          Logger.debug('🔧 Development mode: User not found in DB, returning mock data');
+          const mockUser = {
+            id: req.user.id,
+            walletAddress: req.user.walletAddress,
+            publicKey: req.user.publicKey,
+            balance: 1000,
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            settings: null
+          };
+
+          ResponseUtil.success(res, {
+            user: mockUser
+          }, 'Token is valid (development mode fallback)');
+          return;
+        }
+
         ResponseUtil.unauthorized(res, 'User not found');
         return;
       }
@@ -173,6 +211,26 @@ export class AuthController {
 
     } catch (error) {
       Logger.error('Token verification error', { error: error.message });
+      
+      // 开发模式：即使出错也返回模拟数据
+      if (process.env.NODE_ENV === 'development' && req.user) {
+        Logger.debug('🔧 Development mode: Error occurred, returning mock data');
+        const mockUser = {
+          id: req.user.id,
+          walletAddress: req.user.walletAddress,
+          publicKey: req.user.publicKey,
+          balance: 1000,
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+          settings: null
+        };
+
+        ResponseUtil.success(res, {
+          user: mockUser
+        }, 'Token is valid (development mode error fallback)');
+        return;
+      }
+
       ResponseUtil.serverError(res);
     }
   }

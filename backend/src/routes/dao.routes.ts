@@ -5,6 +5,8 @@ import { DAOProjectsController } from '@/controllers/dao-projects.controller';
 import { DAOTasksController } from '@/controllers/dao-tasks.controller';
 import { DAOTreasuryController } from '@/controllers/dao-treasury.controller';
 import { DAOMembersController } from '@/controllers/dao-members.controller';
+import { TreasuryController } from '@/controllers/treasury.controller';
+import { VotingWeightController } from '@/controllers/voting-weight.controller';
 import { authenticate } from '@/middleware/auth';
 import { validate, validateQuery, schemas } from '@/middleware/validation';
 import Joi from 'joi';
@@ -43,8 +45,8 @@ const daoSchemas = {
   }),
   
   vote: Joi.object({
-    voteType: Joi.string().valid('FOR', 'AGAINST', 'ABSTAIN').required(),
-    reason: Joi.string().max(500).optional()
+    voteType: Joi.string().valid('FOR', 'AGAINST', 'ABSTAIN', 'for', 'against', 'abstain').required(),
+    reason: Joi.string().max(500).allow('').optional()
   }),
   
   createProject: Joi.object({
@@ -128,7 +130,7 @@ const daoSchemas = {
   }),
   
   updateMemberRole: Joi.object({
-    role: Joi.string().valid('ADMIN', 'MEMBER').required()
+    role: Joi.string().valid('CHAIR', 'ADMIN', 'MEMBER').required()
   }),
   
   updateVotingPower: Joi.object({
@@ -163,6 +165,30 @@ const daoSchemas = {
     completedDate: Joi.date().optional(),
     attachments: Joi.array().items(Joi.string()).optional(),
     tags: Joi.array().items(Joi.string()).optional()
+  }),
+  
+  // Treasury schemas
+  createTransferRequest: Joi.object({
+    type: Joi.string().valid('DEPOSIT', 'WITHDRAWAL', 'INVESTMENT', 'REWARD', 'FEE', 'MILESTONE_PAYMENT').required(),
+    amount: Joi.number().min(0).required(),
+    token: Joi.string().required().min(1).max(20),
+    to: Joi.string().min(32).max(64).optional(),
+    description: Joi.string().max(500).optional(),
+    proposalId: Joi.string().optional(),
+    projectId: Joi.string().optional()
+  }),
+  
+  confirmTransaction: Joi.object({
+    txHash: Joi.string().required().min(64).max(128)
+  }),
+  
+  milestonePayment: Joi.object({
+    amount: Joi.number().min(0).required(),
+    recipientAddress: Joi.string().required().min(32).max(64)
+  }),
+  
+  allocateFunding: Joi.object({
+    amount: Joi.number().min(0).required()
   })
 };
 
@@ -185,6 +211,7 @@ router.post('/proposals/:id/vote', authenticate, validate(daoSchemas.vote), DAOP
 router.post('/proposals/:id/activate', authenticate, DAOProposalsController.activateProposal);
 router.post('/proposals/:id/execute', authenticate, DAOProposalsController.executeProposal);
 router.post('/proposals/:id/cancel', authenticate, DAOProposalsController.cancelProposal);
+router.delete('/proposals/:id', authenticate, DAOProposalsController.deleteProposal);
 
 // Project Routes
 router.get('/daos/:daoId/projects', authenticate, DAOProjectsController.getProjects);
@@ -221,5 +248,23 @@ router.post('/daos/:daoId/treasury/withdrawal', authenticate, validate(daoSchema
 router.post('/daos/:daoId/treasury/investment', authenticate, validate(daoSchemas.createInvestment), DAOTreasuryController.createInvestment);
 router.post('/treasury/transactions/:transactionId/approve', authenticate, validate(daoSchemas.approveTransaction), DAOTreasuryController.approveTransaction);
 router.post('/treasury/transactions/:transactionId/reject', authenticate, validate(daoSchemas.rejectTransaction), DAOTreasuryController.rejectTransaction);
+
+// Enhanced Treasury Routes (New Treasury Service)
+router.get('/daos/:daoId/treasury/balance-v2', authenticate, TreasuryController.getDAOBalance);
+router.get('/daos/:daoId/treasury/metrics', authenticate, TreasuryController.getTreasuryMetrics);
+router.get('/daos/:daoId/treasury/history', authenticate, TreasuryController.getTransactionHistory);
+router.post('/daos/:daoId/treasury/transfer', authenticate, validate(daoSchemas.createTransferRequest), TreasuryController.createTransferRequest);
+router.post('/treasury/transactions/:transactionId/confirm', authenticate, validate(daoSchemas.confirmTransaction), TreasuryController.confirmTransaction);
+router.post('/daos/:daoId/projects/:projectId/milestones/:milestoneId/payment', authenticate, validate(daoSchemas.milestonePayment), TreasuryController.processMilestonePayment);
+router.post('/daos/:daoId/projects/:projectId/allocate-funding', authenticate, validate(daoSchemas.allocateFunding), TreasuryController.allocateProjectFunding);
+
+// Voting Weight Routes
+router.get('/daos/:daoId/members/:memberId/voting-power', authenticate, VotingWeightController.getMemberVotingPower);
+router.post('/daos/:daoId/members/update-voting-powers', authenticate, VotingWeightController.updateDAOVotingPowers);
+router.get('/proposals/:proposalId/threshold-check', authenticate, VotingWeightController.checkProposalThreshold);
+router.get('/daos/:daoId/quorum-threshold', authenticate, VotingWeightController.getQuorumThreshold);
+router.get('/daos/:daoId/execution-queue', authenticate, VotingWeightController.getExecutionQueueStatus);
+router.post('/proposals/:proposalId/cancel-execution', authenticate, VotingWeightController.cancelProposalExecution);
+router.get('/daos/:daoId/voting-power-ranking', authenticate, VotingWeightController.getVotingPowerRanking);
 
 export default router;

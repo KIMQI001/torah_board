@@ -13,6 +13,17 @@ const authenticate = async (req, res, next) => {
             return;
         }
         const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+        // 开发模式：接受模拟token
+        if (process.env.NODE_ENV === 'development' && token.startsWith('dev-token-')) {
+            logger_1.Logger.debug('🔧 Development mode: Using mock authentication');
+            req.user = {
+                id: 'dev-user-001',
+                walletAddress: 'DevWallet123',
+                publicKey: 'DevPublicKey123'
+            };
+            next();
+            return;
+        }
         // Verify JWT token
         const payload = jwt_1.JwtUtil.verify(token);
         // Check if user still exists in database

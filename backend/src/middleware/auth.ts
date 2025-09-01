@@ -20,6 +20,18 @@ export const authenticate = async (
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
+    // 开发模式：接受模拟token
+    if (process.env.NODE_ENV === 'development' && token.startsWith('dev-token-')) {
+      Logger.debug('🔧 Development mode: Using mock authentication');
+      req.user = {
+        id: 'cmf0l7h1p0000vldfi9wmxwex', // Use actual user ID from database
+        walletAddress: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx',
+        publicKey: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx'
+      };
+      next();
+      return;
+    }
+
     // Verify JWT token
     const payload = JwtUtil.verify(token);
     
@@ -74,6 +86,18 @@ export const optionalAuth = async (
     }
 
     const token = authHeader.substring(7);
+    
+    // 开发模式：接受模拟token
+    if (process.env.NODE_ENV === 'development' && token.startsWith('dev-token-')) {
+      Logger.debug('🔧 Development mode: Using mock authentication');
+      req.user = {
+        id: 'cmf0l7h1p0000vldfi9wmxwex', // Use actual user ID from database
+        walletAddress: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx',
+        publicKey: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx'
+      };
+      next();
+      return;
+    }
     
     try {
       const payload = JwtUtil.verify(token);

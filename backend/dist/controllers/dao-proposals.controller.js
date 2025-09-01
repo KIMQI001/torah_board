@@ -4,6 +4,9 @@ exports.DAOProposalsController = void 0;
 const response_1 = require("@/utils/response");
 const logger_1 = require("@/utils/logger");
 const database_1 = require("@/services/database");
+const voting_weight_service_1 = require("@/services/voting-weight.service");
+const proposal_execution_service_1 = require("@/services/proposal-execution.service");
+const treasury_service_1 = require("@/services/treasury.service");
 class DAOProposalsController {
     /**
      * Get proposals for a DAO
@@ -208,13 +211,15 @@ class DAOProposalsController {
                 response_1.ResponseUtil.error(res, 'You have already voted on this proposal');
                 return;
             }
+            // Calculate current voting power
+            const currentVotingPower = await voting_weight_service_1.VotingWeightService.calculateVotingPower(member.id);
             // Create vote
             const vote = await database_1.prisma.dAOVote.create({
                 data: {
                     proposalId: id,
                     memberId: member.id,
                     voteType: voteType.toUpperCase(),
-                    votingPower: member.votingPower,
+                    votingPower: currentVotingPower,
                     reason
                 }
             });
@@ -224,8 +229,8 @@ class DAOProposalsController {
             await database_1.prisma.dAOProposal.update({
                 where: { id },
                 data: {
-                    [voteField]: { increment: member.votingPower },
-                    totalVotes: { increment: member.votingPower }
+                    [voteField]: { increment: currentVotingPower },
+                    totalVotes: { increment: currentVotingPower }
                 }
             });
             // Update member activity
@@ -240,7 +245,7 @@ class DAOProposalsController {
                 proposalId: id,
                 memberId: member.id,
                 voteType,
-                votingPower: member.votingPower
+                votingPower: currentVotingPower
             });
             response_1.ResponseUtil.success(res, vote, 'Vote cast successfully');
         }
@@ -328,40 +333,33 @@ class DAOProposalsController {
                 response_1.ResponseUtil.error(res, 'Proposal must finish voting before execution');
                 return;
             }
-            // Check if proposal met quorum and threshold
-            const quorumMet = proposal.totalVotes >= proposal.quorum;
-            const thresholdMet = proposal.totalVotes > 0 &&
-                (proposal.votesFor / proposal.totalVotes) * 100 >= proposal.threshold;
-            if (!quorumMet || !thresholdMet) {
+            // Use VotingWeightService to check threshold
+            const thresholdResult = await voting_weight_service_1.VotingWeightService.checkProposalThreshold(id);
+            if (!thresholdResult.passed) {
                 // Mark as failed
                 await database_1.prisma.dAOProposal.update({
                     where: { id },
                     data: { status: 'FAILED' }
                 });
-                response_1.ResponseUtil.error(res, 'Proposal did not meet quorum or threshold requirements');
+                response_1.ResponseUtil.error(res, `Proposal failed: ${thresholdResult.quorumReached ?
+                    `Threshold not met (${thresholdResult.forPercentage.toFixed(1)}% for vs ${proposal.threshold}% required)` :
+                    'Quorum not reached'}`);
                 return;
             }
-            // Execute proposal (create treasury transaction if needed)
+            // Check if funding is available for treasury/investment proposals
             if (proposal.requestedAmount && proposal.requestedAmount > 0) {
-                await database_1.prisma.dAOTreasury.create({
-                    data: {
-                        daoId: proposal.daoId,
-                        type: 'INVESTMENT',
-                        amount: proposal.requestedAmount,
-                        token: 'USDC', // Default token
-                        description: `Execution of proposal: ${proposal.title}`,
-                        proposalId: id,
-                        status: 'PENDING'
-                    }
-                });
-            }
-            const updatedProposal = await database_1.prisma.dAOProposal.update({
-                where: { id },
-                data: {
-                    status: 'EXECUTED',
-                    executionTime: now
+                const fundsAvailable = await treasury_service_1.TreasuryService.checkFundsAvailability(proposal.daoId, proposal.requestedAmount);
+                if (!fundsAvailable) {
+                    response_1.ResponseUtil.error(res, 'Insufficient treasury funds to execute proposal');
+                    return;
                 }
-            });
+            }
+            // Queue proposal for execution with timelock
+            await proposal_execution_service_1.ProposalExecutionService.queueProposalExecution(id);
+            response_1.ResponseUtil.success(res, {
+                message: 'Proposal passed and queued for execution',
+                executionTime: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
+            }, 'Proposal queued for execution with 24-hour timelock');
             logger_1.Logger.info('Proposal executed', {
                 proposalId: id,
                 executedBy: userId

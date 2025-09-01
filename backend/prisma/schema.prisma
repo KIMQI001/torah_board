@@ -153,6 +153,8 @@ model DAO {
   members         DAOMember[]
   treasury        DAOTreasury[]
   distributions   DAODistribution[]
+  fundingRequests DAOFundingRequest[]
+  milestoneVerifications DAOMilestoneVerification[]
   
   @@map("daos")
 }
@@ -183,6 +185,7 @@ model DAOProposal {
   // Relations
   dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
   votes           DAOVote[]
+  fundingRequests DAOFundingRequest[]
   
   @@map("dao_proposals")
 }
@@ -212,6 +215,7 @@ model DAOProject {
   dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
   milestones      DAOMilestone[]
   tasks           DAOTask[]
+  verifications   DAOMilestoneVerification[]
   
   @@map("dao_projects")
 }
@@ -232,6 +236,7 @@ model DAOMilestone {
   
   // Relations
   project         DAOProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  verifications   DAOMilestoneVerification[]
   
   @@map("dao_milestones")
 }
@@ -241,7 +246,7 @@ model DAOMember {
   daoId           String
   userId          String
   address         String
-  role            String   @default("MEMBER") // 'ADMIN', 'MEMBER', 'CONTRIBUTOR', 'OBSERVER'
+  role            String   @default("MEMBER") // 'CHAIR', 'ADMIN', 'MEMBER'
   votingPower     Float    @default(0)
   reputation      Float    @default(50)
   contributionScore Float  @default(0)
@@ -257,6 +262,8 @@ model DAOMember {
   dao             DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   votes           DAOVote[]
+  fundingReviews  DAOFundingReview[]
+  verificationReviews DAOVerificationReview[]
   
   @@unique([daoId, userId])
   @@map("dao_members")
@@ -343,4 +350,103 @@ model DAOTask {
   project         DAOProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   
   @@map("dao_tasks")
+}
+
+model DAOFundingRequest {
+  id                String   @id @default(cuid())
+  daoId             String
+  proposalId        String?
+  requestType       String   // 'PROJECT_FUNDING', 'MILESTONE_PAYMENT', 'EMERGENCY_FUND', 'OPERATIONAL_EXPENSES'
+  amount            Float
+  token             String
+  recipient         String
+  purpose           String
+  justification     String
+  requiredDocuments String   // JSON array
+  attachments       String?  // JSON array
+  status            String   @default("DRAFT") // 'DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'EXECUTED'
+  reviewers         String   // JSON array of reviewer IDs
+  approvalThreshold Float
+  currentApprovals  Float    @default(0)
+  reviewDeadline    DateTime
+  rejectionReason   String?
+  executedAt        DateTime?
+  executorId        String?
+  transactionId     String?
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  dao               DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
+  proposal          DAOProposal? @relation(fields: [proposalId], references: [id])
+  reviews           DAOFundingReview[]
+  
+  @@map("dao_funding_requests")
+}
+
+model DAOFundingReview {
+  id              String   @id @default(cuid())
+  requestId       String
+  reviewerId      String
+  decision        String   // 'APPROVE', 'REJECT', 'REQUEST_CHANGES'
+  comments        String
+  attachments     String?  // JSON array
+  votingPower     Float
+  timestamp       DateTime @default(now())
+  
+  // Relations
+  request         DAOFundingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  reviewer        DAOMember @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  
+  @@unique([requestId, reviewerId])
+  @@map("dao_funding_reviews")
+}
+
+model DAOMilestoneVerification {
+  id                    String   @id @default(cuid())
+  milestoneId           String
+  projectId             String
+  daoId                 String
+  verificationMethod    String   // 'PEER_REVIEW', 'AUTOMATED_CHECK', 'EXTERNAL_AUDIT', 'DELIVERABLE_SUBMISSION'
+  requiredEvidence      String   // JSON array
+  submittedEvidence     String   // JSON array
+  verifiers             String   // JSON array of verifier IDs
+  verificationThreshold Float
+  currentApprovals      Float    @default(0)
+  status                String   @default("PENDING") // 'PENDING', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED', 'PAYMENT_PROCESSED'
+  submittedBy           String
+  verificationNotes     String?
+  verificationDeadline  DateTime
+  verifiedAt            DateTime?
+  rejectionReason       String?
+  paymentTransactionId  String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  dao                   DAO      @relation(fields: [daoId], references: [id], onDelete: Cascade)
+  project               DAOProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone             DAOMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  reviews               DAOVerificationReview[]
+  
+  @@map("dao_milestone_verifications")
+}
+
+model DAOVerificationReview {
+  id               String   @id @default(cuid())
+  verificationId   String
+  reviewerId       String
+  decision         String   // 'APPROVE', 'REJECT', 'REQUEST_MORE_EVIDENCE'
+  comments         String
+  evidenceChecked  String   // JSON array
+  votingPower      Float
+  timestamp        DateTime @default(now())
+  
+  // Relations
+  verification     DAOMilestoneVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  reviewer         DAOMember @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  
+  @@unique([verificationId, reviewerId])
+  @@map("dao_verification_reviews")
 }

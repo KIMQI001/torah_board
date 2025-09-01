@@ -157,7 +157,7 @@ async function startServer() {
     SchedulerService.initialize();
     
     // Initialize WebSocket service
-    WebSocketService.initialize(WS_PORT);
+    // WebSocketService.initialize(WS_PORT); // Temporarily disabled to avoid port conflicts
 
     // Start HTTP server
     app.listen(PORT, () => {

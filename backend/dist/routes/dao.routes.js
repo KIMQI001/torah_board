@@ -7,8 +7,11 @@ const express_1 = require("express");
 const dao_controller_1 = require("@/controllers/dao.controller");
 const dao_proposals_controller_1 = require("@/controllers/dao-proposals.controller");
 const dao_projects_controller_1 = require("@/controllers/dao-projects.controller");
+const dao_tasks_controller_1 = require("@/controllers/dao-tasks.controller");
 const dao_treasury_controller_1 = require("@/controllers/dao-treasury.controller");
 const dao_members_controller_1 = require("@/controllers/dao-members.controller");
+const treasury_controller_1 = require("@/controllers/treasury.controller");
+const voting_weight_controller_1 = require("@/controllers/voting-weight.controller");
 const auth_1 = require("@/middleware/auth");
 const validation_1 = require("@/middleware/validation");
 const joi_1 = __importDefault(require("joi"));
@@ -43,7 +46,7 @@ const daoSchemas = {
     }),
     vote: joi_1.default.object({
         voteType: joi_1.default.string().valid('FOR', 'AGAINST', 'ABSTAIN').required(),
-        reason: joi_1.default.string().max(500).optional()
+        reason: joi_1.default.string().max(500).allow('').optional()
     }),
     createProject: joi_1.default.object({
         title: joi_1.default.string().required().min(5).max(200),
@@ -115,7 +118,7 @@ const daoSchemas = {
         description: joi_1.default.string().required().min(10).max(500)
     }),
     updateMemberRole: joi_1.default.object({
-        role: joi_1.default.string().valid('ADMIN', 'MEMBER').required()
+        role: joi_1.default.string().valid('CHAIR', 'ADMIN', 'MEMBER').required()
     }),
     updateVotingPower: joi_1.default.object({
         votingPower: joi_1.default.number().min(0).required()
@@ -123,6 +126,49 @@ const daoSchemas = {
     updateContributionScore: joi_1.default.object({
         contributionScore: joi_1.default.number().min(0).required(),
         reason: joi_1.default.string().max(500).optional()
+    }),
+    createTask: joi_1.default.object({
+        title: joi_1.default.string().required().min(5).max(200),
+        description: joi_1.default.string().required().min(10).max(1000),
+        priority: joi_1.default.string().valid('LOW', 'MEDIUM', 'HIGH', 'URGENT').optional(),
+        assigneeId: joi_1.default.string().allow('', null).optional(),
+        costEstimate: joi_1.default.number().min(0).default(0),
+        tokenReward: joi_1.default.number().min(0).default(0),
+        dueDate: joi_1.default.date().optional().allow(null),
+        tags: joi_1.default.array().items(joi_1.default.string()).optional().allow(null)
+    }),
+    updateTask: joi_1.default.object({
+        title: joi_1.default.string().min(5).max(200).optional(),
+        description: joi_1.default.string().min(10).max(1000).optional(),
+        status: joi_1.default.string().valid('TODO', 'IN_PROGRESS', 'REVIEW', 'COMPLETED').optional(),
+        priority: joi_1.default.string().valid('LOW', 'MEDIUM', 'HIGH', 'URGENT').optional(),
+        assigneeId: joi_1.default.string().optional(),
+        costEstimate: joi_1.default.number().min(0).optional(),
+        tokenReward: joi_1.default.number().min(0).optional(),
+        dueDate: joi_1.default.date().optional(),
+        completedDate: joi_1.default.date().optional(),
+        attachments: joi_1.default.array().items(joi_1.default.string()).optional(),
+        tags: joi_1.default.array().items(joi_1.default.string()).optional()
+    }),
+    // Treasury schemas
+    createTransferRequest: joi_1.default.object({
+        type: joi_1.default.string().valid('DEPOSIT', 'WITHDRAWAL', 'INVESTMENT', 'REWARD', 'FEE', 'MILESTONE_PAYMENT').required(),
+        amount: joi_1.default.number().min(0).required(),
+        token: joi_1.default.string().required().min(1).max(20),
+        to: joi_1.default.string().min(32).max(64).optional(),
+        description: joi_1.default.string().max(500).optional(),
+        proposalId: joi_1.default.string().optional(),
+        projectId: joi_1.default.string().optional()
+    }),
+    confirmTransaction: joi_1.default.object({
+        txHash: joi_1.default.string().required().min(64).max(128)
+    }),
+    milestonePayment: joi_1.default.object({
+        amount: joi_1.default.number().min(0).required(),
+        recipientAddress: joi_1.default.string().required().min(32).max(64)
+    }),
+    allocateFunding: joi_1.default.object({
+        amount: joi_1.default.number().min(0).required()
     })
 };
 // DAO Management Routes
@@ -158,6 +204,12 @@ router.put('/daos/:daoId/members/:memberId/role', auth_1.authenticate, (0, valid
 router.put('/daos/:daoId/members/:memberId/voting-power', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.updateVotingPower), dao_members_controller_1.DAOMembersController.updateVotingPower);
 router.put('/daos/:daoId/members/:memberId/contribution-score', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.updateContributionScore), dao_members_controller_1.DAOMembersController.updateContributionScore);
 router.delete('/daos/:daoId/members/:memberId', auth_1.authenticate, dao_members_controller_1.DAOMembersController.removeMember);
+// Task Routes  
+router.get('/projects/:projectId/tasks', auth_1.authenticate, dao_tasks_controller_1.DAOTasksController.getTasks);
+router.get('/tasks/:id', auth_1.authenticate, dao_tasks_controller_1.DAOTasksController.getTask);
+router.post('/projects/:projectId/tasks', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.createTask), dao_tasks_controller_1.DAOTasksController.createTask);
+router.put('/tasks/:id', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.updateTask), dao_tasks_controller_1.DAOTasksController.updateTask);
+router.delete('/tasks/:id', auth_1.authenticate, dao_tasks_controller_1.DAOTasksController.deleteTask);
 // Treasury Routes
 router.get('/daos/:daoId/treasury/transactions', auth_1.authenticate, dao_treasury_controller_1.DAOTreasuryController.getTreasuryTransactions);
 router.get('/daos/:daoId/treasury/balance', auth_1.authenticate, dao_treasury_controller_1.DAOTreasuryController.getTreasuryBalance);
@@ -167,5 +219,21 @@ router.post('/daos/:daoId/treasury/withdrawal', auth_1.authenticate, (0, validat
 router.post('/daos/:daoId/treasury/investment', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.createInvestment), dao_treasury_controller_1.DAOTreasuryController.createInvestment);
 router.post('/treasury/transactions/:transactionId/approve', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.approveTransaction), dao_treasury_controller_1.DAOTreasuryController.approveTransaction);
 router.post('/treasury/transactions/:transactionId/reject', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.rejectTransaction), dao_treasury_controller_1.DAOTreasuryController.rejectTransaction);
+// Enhanced Treasury Routes (New Treasury Service)
+router.get('/daos/:daoId/treasury/balance-v2', auth_1.authenticate, treasury_controller_1.TreasuryController.getDAOBalance);
+router.get('/daos/:daoId/treasury/metrics', auth_1.authenticate, treasury_controller_1.TreasuryController.getTreasuryMetrics);
+router.get('/daos/:daoId/treasury/history', auth_1.authenticate, treasury_controller_1.TreasuryController.getTransactionHistory);
+router.post('/daos/:daoId/treasury/transfer', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.createTransferRequest), treasury_controller_1.TreasuryController.createTransferRequest);
+router.post('/treasury/transactions/:transactionId/confirm', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.confirmTransaction), treasury_controller_1.TreasuryController.confirmTransaction);
+router.post('/daos/:daoId/projects/:projectId/milestones/:milestoneId/payment', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.milestonePayment), treasury_controller_1.TreasuryController.processMilestonePayment);
+router.post('/daos/:daoId/projects/:projectId/allocate-funding', auth_1.authenticate, (0, validation_1.validate)(daoSchemas.allocateFunding), treasury_controller_1.TreasuryController.allocateProjectFunding);
+// Voting Weight Routes
+router.get('/daos/:daoId/members/:memberId/voting-power', auth_1.authenticate, voting_weight_controller_1.VotingWeightController.getMemberVotingPower);
+router.post('/daos/:daoId/members/update-voting-powers', auth_1.authenticate, voting_weight_controller_1.VotingWeightController.updateDAOVotingPowers);
+router.get('/proposals/:proposalId/threshold-check', auth_1.authenticate, voting_weight_controller_1.VotingWeightController.checkProposalThreshold);
+router.get('/daos/:daoId/quorum-threshold', auth_1.authenticate, voting_weight_controller_1.VotingWeightController.getQuorumThreshold);
+router.get('/daos/:daoId/execution-queue', auth_1.authenticate, voting_weight_controller_1.VotingWeightController.getExecutionQueueStatus);
+router.post('/proposals/:proposalId/cancel-execution', auth_1.authenticate, voting_weight_controller_1.VotingWeightController.cancelProposalExecution);
+router.get('/daos/:daoId/voting-power-ranking', auth_1.authenticate, voting_weight_controller_1.VotingWeightController.getVotingPowerRanking);
 exports.default = router;
 //# sourceMappingURL=dao.routes.js.map
