@@ -30,10 +30,10 @@ interface NewsFeedItem {
 
 // 组件属性接口
 interface NewsFloatingWidgetProps {
-  refreshInterval?: number;
-  maxItems?: number;
-  onNewsClick?: (news: NewsFeedItem) => void;
-  className?: string;
+  refreshInterval?: number; // 数据刷新间隔，默认30秒
+  maxItems?: number; // 最多显示的新闻数量，默认3条
+  onNewsClick?: (news: NewsFeedItem) => void; // 新闻点击回调
+  className?: string; // 自定义样式类
 }
 
 export const NewsFloatingWidget: React.FC<NewsFloatingWidgetProps> = ({
@@ -74,7 +74,7 @@ export const NewsFloatingWidget: React.FC<NewsFloatingWidgetProps> = ({
         
         if (hasNew) {
           setHasNewNews(true);
-          // 有新消息时自动展开3秒
+          // 有新消息时自动展开15秒
           setIsExpanded(true);
           
           // 清除之前的定时器
@@ -82,11 +82,11 @@ export const NewsFloatingWidget: React.FC<NewsFloatingWidgetProps> = ({
             clearTimeout(autoExpandTimeout);
           }
           
-          // 3秒后自动收起
+          // 15秒后自动收起
           const timeout = setTimeout(() => {
             setIsExpanded(false);
             setHasNewNews(false);
-          }, 3000);
+          }, 15000);
           
           setAutoExpandTimeout(timeout);
         }

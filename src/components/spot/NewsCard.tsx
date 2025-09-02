@@ -451,7 +451,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
             <p className="text-sm text-muted-foreground">暂无快讯数据</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[650px] overflow-y-auto scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
             {filteredFeeds.map((feed) => (
               <div
                 key={feed.id}

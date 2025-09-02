@@ -30,11 +30,43 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({
   const { overview, loading } = useRealMarketStats();
   const { prices } = useRealPriceData();
   
-  // 生成真实的趋势数据
+  // 热门币种数据 - BTC、ETH、SOL、BNB、DOGE
   const trending = [
-    { symbol: 'BTC', name: 'Bitcoin', price: prices.bitcoin?.usd || 109876, change24h: prices.bitcoin?.usd_24h_change || 2.3 },
-    { symbol: 'ETH', name: 'Ethereum', price: prices.ethereum?.usd || 4344, change24h: prices.ethereum?.usd_24h_change || 3.1 },
-    { symbol: 'SOL', name: 'Solana', price: prices.solana?.usd || 241, change24h: prices.solana?.usd_24h_change || 5.2 }
+    { 
+      symbol: 'BTC', 
+      name: 'Bitcoin', 
+      price: prices.bitcoin?.usd || 109876, 
+      change24h: prices.bitcoin?.usd_24h_change || 2.3,
+      marketCap: prices.bitcoin?.usd_market_cap || 2170000000000
+    },
+    { 
+      symbol: 'ETH', 
+      name: 'Ethereum', 
+      price: prices.ethereum?.usd || 4344, 
+      change24h: prices.ethereum?.usd_24h_change || 3.1,
+      marketCap: prices.ethereum?.usd_market_cap || 520000000000
+    },
+    { 
+      symbol: 'SOL', 
+      name: 'Solana', 
+      price: prices.solana?.usd || 241, 
+      change24h: prices.solana?.usd_24h_change || 5.2,
+      marketCap: prices.solana?.usd_market_cap || 115000000000
+    },
+    { 
+      symbol: 'BNB', 
+      name: 'BNB', 
+      price: prices.binancecoin?.usd || 672, 
+      change24h: prices.binancecoin?.usd_24h_change || 1.8,
+      marketCap: prices.binancecoin?.usd_market_cap || 96000000000
+    },
+    { 
+      symbol: 'DOGE', 
+      name: 'Dogecoin', 
+      price: prices.dogecoin?.usd || 0.41, 
+      change24h: prices.dogecoin?.usd_24h_change || 4.2,
+      marketCap: prices.dogecoin?.usd_market_cap || 60000000000
+    }
   ];
   
   const anomalies: any[] = [];
@@ -160,26 +192,31 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({
             <div className="text-center py-4 text-muted-foreground">暂无数据</div>
           ) : (
             <div className="space-y-3">
-              {trending.slice(0, 5).map((token, index) => (
+              {trending.map((token, index) => (
                 <div 
-                  key={`trending-${token.symbol}-${token.exchange}-${index}`}
-                  className="flex justify-between items-center py-2 cursor-pointer hover:bg-gray-50 rounded"
+                  key={`trending-${token.symbol}-${index}`}
+                  className="flex justify-between items-center py-3 px-2 cursor-pointer hover:bg-muted/50 rounded-lg transition-colors"
                   onClick={() => onSymbolClick?.(token.symbol)}
                 >
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full font-medium">
                       {index + 1}
                     </span>
                     <div>
-                      <div className="font-medium">{token.baseAsset}</div>
+                      <div className="font-semibold text-sm">{token.symbol}</div>
                       <div className="text-xs text-muted-foreground">
-                        ${token.price?.toFixed(4) || '0.0000'}
+                        {token.name}
                       </div>
                     </div>
                   </div>
-                  <Badge className={getChangeColor(token.priceChangePercent).includes('green') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}>
-                    {formatPercentage(token.priceChangePercent)}
-                  </Badge>
+                  <div className="text-right">
+                    <div className="font-medium text-sm">
+                      ${token.price >= 1 ? token.price.toFixed(2) : token.price.toFixed(4)}
+                    </div>
+                    <div className={`text-xs font-medium ${getChangeColor(token.change24h)}`}>
+                      {formatPercentage(token.change24h)}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

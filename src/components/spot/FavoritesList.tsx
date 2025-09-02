@@ -201,30 +201,35 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
           </div>
         ) : (
           <div className="space-y-3">
-            {favorites.slice(0, 5).map((favorite) => (
+            {favorites.slice(0, 5).map((favorite, index) => (
               <div
                 key={favorite.id}
-                className="flex justify-between items-center py-2 cursor-pointer hover:bg-gray-50 rounded group"
+                className="flex justify-between items-center py-3 px-2 cursor-pointer hover:bg-muted/50 rounded-lg transition-colors group"
                 onClick={() => handleSymbolClick(favorite.symbol)}
               >
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-medium">
+                    ♥
+                  </span>
                   <div>
-                    <div className="font-medium flex items-center space-x-1">
+                    <div className="font-semibold text-sm flex items-center space-x-1">
                       <span>{favorite.baseAsset}</span>
                       {getChangeIcon(favorite.marketData?.priceChangePercent)}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {formatPrice(favorite.marketData?.price)}
+                      {favorite.baseAsset}/{favorite.quoteAsset}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Badge 
-                    variant="outline" 
-                    className={`text-xs ${getChangeColor(favorite.marketData?.priceChangePercent)}`}
-                  >
-                    {formatPercentage(favorite.marketData?.priceChangePercent)}
-                  </Badge>
+                  <div className="text-right">
+                    <div className="font-medium text-sm">
+                      {formatPrice(favorite.marketData?.price)}
+                    </div>
+                    <div className={`text-xs font-medium ${getChangeColor(favorite.marketData?.priceChangePercent)}`}>
+                      {formatPercentage(favorite.marketData?.priceChangePercent)}
+                    </div>
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -238,9 +243,14 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
             ))}
             
             {favorites.length > 5 && (
-              <div className="pt-2 border-t">
-                <Button variant="ghost" size="sm" className="w-full text-xs">
-                  查看全部 ({favorites.length})
+              <div className="pt-3 border-t border-border/30">
+                <Button variant="ghost" size="sm" className="w-full text-xs font-medium bg-gradient-to-r from-muted/30 to-muted/20 hover:from-muted/50 hover:to-muted/40 rounded-lg transition-all duration-300 hover:shadow-md">
+                  <div className="flex items-center space-x-2">
+                    <span className="bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                      查看全部 ({favorites.length})
+                    </span>
+                    <Star className="h-3 w-3 text-primary/70" />
+                  </div>
                 </Button>
               </div>
             )}
