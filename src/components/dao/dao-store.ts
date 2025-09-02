@@ -8,7 +8,7 @@ export type ProposalStatus = 'draft' | 'active' | 'passed' | 'failed' | 'execute
 export type ProjectStatus = 'planning' | 'active' | 'milestone_pending' | 'completed' | 'cancelled';
 export type MemberRole = 'admin' | 'member' | 'contributor' | 'observer';
 export type TransactionType = 'deposit' | 'withdrawal' | 'investment' | 'reward' | 'fee' | 'milestone_payment';
-export type VoteType = 'for' | 'against' | 'abstain';
+export type VoteType = 'FOR' | 'AGAINST' | 'ABSTAIN';
 export type DistributionMethod = 'token_holding' | 'contribution' | 'equal' | 'custom';
 
 export interface Proposal {

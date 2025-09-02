@@ -186,6 +186,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
+      // 开发模式：如果是开发token，直接创建模拟用户，不调用API
+      if (process.env.NODE_ENV === 'development' && token.startsWith('dev-token-')) {
+        console.log('🔧 AuthContext: 开发模式，使用模拟用户数据');
+        const mockUser: User = {
+          id: 'dev-user-001',
+          walletAddress: 'DevWallet' + Math.random().toString(36).substring(7),
+          publicKey: 'DevPublicKey' + Math.random().toString(36).substring(7),
+          balance: 1000,
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+        };
+        updateState({
+          user: mockUser,
+          isAuthenticated: true,
+          isLoading: false,
+        });
+        return;
+      }
+
       const userData = await authApi.verify();
       if (userData && userData.user) {
         updateState({
@@ -198,17 +217,50 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     } catch (error) {
       console.error('刷新用户信息失败:', error);
-      signOut();
+      // 开发模式：即使API调用失败也保持认证状态
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔧 AuthContext: 开发模式，忽略API错误，保持认证状态');
+        const mockUser: User = {
+          id: 'dev-user-001',
+          walletAddress: 'DevWallet' + Math.random().toString(36).substring(7),
+          publicKey: 'DevPublicKey' + Math.random().toString(36).substring(7),
+          balance: 1000,
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+        };
+        updateState({
+          user: mockUser,
+          isAuthenticated: true,
+          isLoading: false,
+        });
+      } else {
+        signOut();
+      }
     }
   };
 
   // 初始化时检查现有 token
   useEffect(() => {
     const initializeAuth = async () => {
+      // 清理开发模式的token，强制使用真实钱包
       const token = getAuthToken();
+      if (token && token.startsWith('dev-token-')) {
+        console.log('🧹 清除开发模式token，要求真实钱包连接');
+        clearAuthToken();
+        // 同时清理其他开发模式相关的localStorage数据
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('mock_wallet_connection');
+        }
+        updateState({ isLoading: false });
+        return;
+      }
+      
       if (token) {
+        // 如果存在有效token，验证它
         await refreshUser();
       } else {
+        // 没有token时，等待用户主动连接钱包
+        console.log('🔌 无认证token，等待用户连接钱包');
         updateState({ isLoading: false });
       }
     };

@@ -9,6 +9,36 @@ const logger_1 = require("@/utils/logger");
 const database_1 = require("@/services/database");
 const websocket_service_1 = require("@/services/websocket.service");
 class ExternalApiService {
+    static async processQueue() {
+        if (this.requestQueue.length === 0 || this.activeRequests >= this.API_RATE_LIMIT) {
+            return;
+        }
+        const { requestFn, resolve, reject } = this.requestQueue.shift();
+        this.activeRequests++;
+        try {
+            const result = await requestFn();
+            resolve(result);
+        }
+        catch (error) {
+            reject(error);
+        }
+        finally {
+            this.activeRequests--;
+            // 添加延迟再处理下一个请求
+            setTimeout(() => {
+                this.processQueue();
+            }, this.API_DELAY);
+        }
+    }
+    /**
+     * 受限流控制的API请求
+     */
+    static async throttledRequest(requestFn) {
+        return new Promise((resolve, reject) => {
+            this.requestQueue.push({ requestFn, resolve, reject });
+            this.processQueue();
+        });
+    }
     /**
      * Retry mechanism for API calls
      */
@@ -16,7 +46,8 @@ class ExternalApiService {
         let lastError;
         for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
             try {
-                return await requestFn();
+                // 使用节流请求而不是直接调用
+                return await this.throttledRequest(requestFn);
             }
             catch (error) {
                 lastError = error;
@@ -25,6 +56,13 @@ class ExternalApiService {
                     error: error.message,
                     status: error.response?.status
                 });
+                // 如果是429错误，增加额外延迟
+                if (error.response?.status === 429) {
+                    const retryAfter = parseInt(error.response.headers?.['retry-after'] || '5');
+                    const delay = Math.max(retryAfter * 1000, 5000); // 至少5秒
+                    logger_1.Logger.warn(`Rate limited, waiting ${delay}ms before retry`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
                 // If it's the last attempt, throw the error
                 if (attempt === maxRetries + 1) {
                     throw lastError;
@@ -250,6 +288,7 @@ class ExternalApiService {
                 take: 25 // Limit batch size
             });
             // Also get all Filecoin nodes for earnings update, regardless of capacity status
+            const filecoinWhere = userId ? { userId } : {};
             const filecoinNodes = await database_1.prisma.userNode.findMany({
                 where: {
                     ...filecoinWhere,
@@ -446,4 +485,11 @@ ExternalApiService.FILECOIN_API_BASE = 'https://filfox.info/api/v1';
 ExternalApiService.HELIUM_API_BASE = 'https://api.helium.io/v1';
 ExternalApiService.REQUEST_TIMEOUT = 5000; // Reduced to 5 seconds
 ExternalApiService.MAX_RETRIES = 2; // Add retry mechanism
+ExternalApiService.API_RATE_LIMIT = 2; // 最大并发API请求数
+ExternalApiService.API_DELAY = 1000; // API请求间隔（毫秒）
+/**
+ * 简单的并发控制队列
+ */
+ExternalApiService.activeRequests = 0;
+ExternalApiService.requestQueue = [];
 //# sourceMappingURL=external-api.service.js.map

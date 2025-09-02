@@ -35,11 +35,9 @@ export default function DePINPage() {
   }, []);
 
   useEffect(() => {
-    // Load initial data when authentication state changes
-    if (isAuthenticated) {
-      apiDePINStore.refreshAll();
-    }
-  }, [isAuthenticated]);
+    // Sync authentication state between AuthContext and apiDePINStore
+    apiDePINStore.syncAuthContext(isAuthenticated, user);
+  }, [isAuthenticated, user]);
 
   // 自动刷新 Filecoin 收益
   useEffect(() => {
@@ -228,8 +226,8 @@ export default function DePINPage() {
     );
   }
 
-  // Show authentication prompt if not connected
-  if (!isAuthenticated) {
+  // Show authentication prompt if not connected (check store state first)
+  if (!storeState.isAuthenticated && !isAuthenticated) {
     return (
       <div className="space-y-6">
         <div className="text-center py-12">
@@ -238,7 +236,13 @@ export default function DePINPage() {
           <p className="text-muted-foreground mb-6 max-w-md mx-auto">
             Connect your wallet to access DePIN projects and manage your nodes
           </p>
-          <WalletButton variant="default" className="min-w-[140px]" />
+          {process.env.NODE_ENV === 'development' ? (
+            <div className="text-sm text-blue-600 bg-blue-50 dark:bg-blue-950 p-3 rounded-lg mb-4">
+              🔧 Development Mode: DePIN authentication initializing...
+            </div>
+          ) : (
+            <WalletButton variant="default" className="min-w-[140px]" />
+          )}
           {storeState.errors.auth && (
             <div className="mt-4 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
               <div className="flex items-center space-x-2 text-red-600 dark:text-red-400">
@@ -272,8 +276,22 @@ export default function DePINPage() {
             {t('depin.subtitle')}
           </p>
           <div className="mt-2 text-sm text-muted-foreground">
-            Connected: {storeState.user?.walletAddress?.substring(0, 8)}...
-            {storeState.user?.walletAddress?.substring(-4)}
+            {(() => {
+              // 优先使用AuthContext的用户信息
+              if (user?.walletAddress) {
+                return `Connected: ${user.walletAddress.substring(0, 8)}...${user.walletAddress.slice(-4)}`;
+              }
+              // 备选：使用apiDePINStore的用户信息
+              if (storeState.user?.walletAddress) {
+                return `Connected: ${storeState.user.walletAddress.substring(0, 8)}...${storeState.user.walletAddress.slice(-4)}`;
+              }
+              // 如果没有用户信息但显示为已认证，则显示加载状态
+              if (isAuthenticated && !user) {
+                return 'Connected: Loading user info...';
+              }
+              // 未连接状态
+              return 'Status: Not connected - Click "连接钱包" to get started';
+            })()}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

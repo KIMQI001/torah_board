@@ -7,6 +7,7 @@ import { WalletProvider } from "@/components/wallet/WalletProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { FloatingNewsWrapper } from "@/components/layout/FloatingNewsWrapper";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -56,6 +57,9 @@ export default function RootLayout({
                       </main>
                     </div>
                   </div>
+                  
+                  {/* 浮动新闻组件 */}
+                  <FloatingNewsWrapper />
                 </AuthProvider>
               </WalletProvider>
             </ToolsProvider>

@@ -19,6 +19,7 @@ import { nodesRoutes } from '@/routes/nodes.routes';
 import { roiRoutes } from '@/routes/roi.routes';
 import { dashboardRoutes } from '@/routes/dashboard.routes';
 import daoRoutes from '@/routes/dao.routes';
+import { spotRoutes } from '@/routes/spot.routes';
 
 // Import services
 import { SchedulerService } from '@/services/scheduler.service';
@@ -113,6 +114,7 @@ app.use(`/api/${API_VERSION}/projects`, projectsRoutes);
 app.use(`/api/${API_VERSION}/nodes`, nodesRoutes);
 app.use(`/api/${API_VERSION}/roi`, roiRoutes);
 app.use(`/api/${API_VERSION}/dashboard`, dashboardRoutes);
+app.use(`/api/${API_VERSION}/spot`, spotRoutes);
 app.use(`/api/${API_VERSION}`, daoRoutes);
 
 // 404 handler

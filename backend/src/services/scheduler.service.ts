@@ -1,6 +1,8 @@
 import cron from 'node-cron';
 import { Logger } from '@/utils/logger';
 import { ExternalApiService } from '@/services/external-api.service';
+import { ExchangeSymbolsService } from '@/services/exchange-symbols.service';
+import { NewsFeedsService } from '@/services/news-feeds.service';
 import { prisma } from '@/services/database';
 
 export class SchedulerService {
@@ -26,6 +28,12 @@ export class SchedulerService {
 
     // Update token prices every 30 minutes
     this.schedulePriceUpdates();
+
+    // Update exchange symbols every 6 hours
+    this.scheduleExchangeSymbolsUpdates();
+
+    // Update news feeds every 3 minutes
+    this.scheduleNewsFeedsUpdates();
 
     this.isRunning = true;
     Logger.info('Scheduler service initialized successfully');
@@ -313,6 +321,150 @@ export class SchedulerService {
       return {
         success: false,
         message: `Capacity update failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Schedule exchange symbols updates every 6 hours
+   */
+  private static scheduleExchangeSymbolsUpdates(): void {
+    const task = cron.schedule('0 */6 * * *', async () => {
+      try {
+        Logger.info('Starting scheduled exchange symbols update...');
+        
+        await ExchangeSymbolsService.updateSymbolsTask();
+        
+        Logger.info('Scheduled exchange symbols update completed');
+      } catch (error) {
+        Logger.error('Error in scheduled exchange symbols update', {
+          error: error.message
+        });
+      }
+    }, {
+      scheduled: false,
+      timezone: 'UTC'
+    });
+
+    task.start();
+    this.tasks.set('exchange-symbols-update', task);
+    Logger.info('Scheduled exchange symbols updates every 6 hours');
+  }
+
+  /**
+   * Manually trigger exchange symbols update
+   */
+  static async triggerExchangeSymbolsUpdate(): Promise<{
+    success: boolean;
+    message: string;
+    stats?: {
+      totalSymbols: number;
+      updateTime: string;
+    };
+  }> {
+    try {
+      Logger.info('Manual exchange symbols update triggered');
+
+      const startTime = Date.now();
+      await ExchangeSymbolsService.updateSymbolsTask();
+      const endTime = Date.now();
+
+      const totalSymbols = await prisma.exchangeSymbol.count({
+        where: { status: 'TRADING' }
+      });
+
+      const stats = {
+        totalSymbols,
+        updateTime: `${(endTime - startTime) / 1000}s`
+      };
+
+      Logger.info('Manual exchange symbols update completed', stats);
+
+      return {
+        success: true,
+        message: `Exchange symbols update completed: ${totalSymbols} symbols updated in ${stats.updateTime}`,
+        stats
+      };
+
+    } catch (error) {
+      Logger.error('Error in manual exchange symbols update', {
+        error: error.message
+      });
+
+      return {
+        success: false,
+        message: `Exchange symbols update failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Schedule news feeds updates every 3 minutes
+   */
+  private static scheduleNewsFeedsUpdates(): void {
+    const task = cron.schedule('*/3 * * * *', async () => {
+      try {
+        Logger.info('Starting scheduled news feeds update...');
+        
+        await NewsFeedsService.aggregateFeedsTask();
+        
+        Logger.info('Scheduled news feeds update completed');
+      } catch (error) {
+        Logger.error('Error in scheduled news feeds update', {
+          error: error.message
+        });
+      }
+    }, {
+      scheduled: false,
+      timezone: 'UTC'
+    });
+
+    task.start();
+    this.tasks.set('news-feeds-update', task);
+    Logger.info('Scheduled news feeds updates every 3 minutes');
+  }
+
+  /**
+   * Manually trigger news feeds update
+   */
+  static async triggerNewsFeedsUpdate(): Promise<{
+    success: boolean;
+    message: string;
+    stats?: {
+      totalFeeds: number;
+      updateTime: string;
+    };
+  }> {
+    try {
+      Logger.info('Manual news feeds update triggered');
+
+      const startTime = Date.now();
+      await NewsFeedsService.aggregateFeedsTask();
+      const endTime = Date.now();
+
+      const totalFeeds = await prisma.newsFeed.count();
+
+      const stats = {
+        totalFeeds,
+        updateTime: `${(endTime - startTime) / 1000}s`
+      };
+
+      Logger.info('Manual news feeds update completed', stats);
+
+      return {
+        success: true,
+        message: `News feeds update completed: ${totalFeeds} total feeds processed in ${stats.updateTime}`,
+        stats
+      };
+
+    } catch (error) {
+      Logger.error('Error in manual news feeds update', {
+        error: error.message
+      });
+
+      return {
+        success: false,
+        message: `News feeds update failed: ${error.message}`
       };
     }
   }

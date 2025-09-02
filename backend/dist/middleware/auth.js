@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.optionalAuth = exports.authenticate = void 0;
+exports.authMiddleware = exports.optionalAuth = exports.authenticate = void 0;
 const jwt_1 = require("@/utils/jwt");
 const response_1 = require("@/utils/response");
 const database_1 = require("@/services/database");
@@ -17,9 +17,9 @@ const authenticate = async (req, res, next) => {
         if (process.env.NODE_ENV === 'development' && token.startsWith('dev-token-')) {
             logger_1.Logger.debug('🔧 Development mode: Using mock authentication');
             req.user = {
-                id: 'dev-user-001',
-                walletAddress: 'DevWallet123',
-                publicKey: 'DevPublicKey123'
+                id: 'cmf0l7h1p0000vldfi9wmxwex', // Use actual user ID from database
+                walletAddress: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx',
+                publicKey: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx'
             };
             next();
             return;
@@ -68,6 +68,17 @@ const optionalAuth = async (req, res, next) => {
             return;
         }
         const token = authHeader.substring(7);
+        // 开发模式：接受模拟token
+        if (process.env.NODE_ENV === 'development' && token.startsWith('dev-token-')) {
+            logger_1.Logger.debug('🔧 Development mode: Using mock authentication');
+            req.user = {
+                id: 'cmf0l7h1p0000vldfi9wmxwex', // Use actual user ID from database
+                walletAddress: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx',
+                publicKey: '7CDNGZJWv8a7rc8Y64NQJerjkMV5y3CuGigdCVK18bsx'
+            };
+            next();
+            return;
+        }
         try {
             const payload = jwt_1.JwtUtil.verify(token);
             const user = await database_1.prisma.user.findUnique({
@@ -101,4 +112,6 @@ const optionalAuth = async (req, res, next) => {
     }
 };
 exports.optionalAuth = optionalAuth;
+// 导出别名
+exports.authMiddleware = exports.authenticate;
 //# sourceMappingURL=auth.js.map

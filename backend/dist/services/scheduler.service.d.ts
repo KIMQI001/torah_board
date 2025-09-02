@@ -38,6 +38,21 @@ export declare class SchedulerService {
         };
     }>;
     /**
+     * Schedule exchange symbols updates every 6 hours
+     */
+    private static scheduleExchangeSymbolsUpdates;
+    /**
+     * Manually trigger exchange symbols update
+     */
+    static triggerExchangeSymbolsUpdate(): Promise<{
+        success: boolean;
+        message: string;
+        stats?: {
+            totalSymbols: number;
+            updateTime: string;
+        };
+    }>;
+    /**
      * Get scheduler status and next run times
      */
     static getStatus(): {

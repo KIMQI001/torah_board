@@ -359,10 +359,10 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
               </div>
               <div className="space-y-1">
                 <div className="text-2xl font-bold text-green-600">
-                  {project.totalBudget.toFixed(2)} SOL
+                  ${project.totalBudget.toFixed(2)}
                 </div>
                 <div className="text-sm text-gray-600">
-                  已使用: {project.spentFunds.toFixed(2)} SOL
+                  已使用: ${project.spentFunds.toFixed(2)}
                 </div>
                 <div className="text-xs text-gray-500">
                   {Math.round(budgetUtilization)}% 预算使用率
@@ -442,7 +442,7 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
                             </div>
                             <div className="flex items-center space-x-1">
                               <Coins className="h-3 w-3" />
-                              <span>预算: {milestone.budget.toFixed(2)} SOL</span>
+                              <span>预算: ${milestone.budget.toFixed(2)}</span>
                             </div>
                             {milestone.completedDate && (
                               <div className="flex items-center space-x-1">
@@ -588,7 +588,7 @@ export function ProjectDetailsModal({ isOpen, onClose, project, daoToken }: Proj
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-gray-500">
                               <div className="flex items-center space-x-2">
                                 <DollarSign className="h-3 w-3" />
-                                <span>成本: {task.costEstimate.toFixed(2)} SOL</span>
+                                <span>成本: ${task.costEstimate.toFixed(2)}</span>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <Award className="h-3 w-3 text-purple-600" />

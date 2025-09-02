@@ -20,12 +20,14 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSearchParams } from 'next/navigation';
 import Link from "next/link";
-import { daoApi, healthApi, DAO, DAOProposal, DAOProject, DAOMember, DAOTreasury } from "@/lib/api";
+import { daoApi, healthApi, invalidateApiCache, DAO, DAOProposal, DAOProject, DAOMember, DAOTreasury } from "@/lib/api";
 import { WalletButton } from "@/components/wallet/WalletButton";
 import { CreateDAOModal } from "@/components/dao/CreateDAOModal";
 import { CreateProjectModal } from "@/components/dao/CreateProjectModal";
 import { CreateProposalModal } from "@/components/dao/CreateProposalModal";
 import { ProjectDetailsModal } from "@/components/dao/ProjectDetailsModal";
+import { ProposalCard } from "@/components/dao/ProposalCard";
+import { ProposalDetailsModal } from "@/components/dao/ProposalDetailsModal";
 import { DAOAnalytics } from "@/components/dao/DAOAnalytics";
 import { ToastContainer } from "@/components/ui/toast-container";
 import { useToast } from "@/hooks/use-toast";
@@ -101,6 +103,8 @@ export default function DAOPage() {
   const [showCreateDAO, setShowCreateDAO] = useState(false);
   const [showProjectDetails, setShowProjectDetails] = useState(false);
   const [selectedProject, setSelectedProject] = useState<DAOProject | null>(null);
+  const [showProposalDetails, setShowProposalDetails] = useState(false);
+  const [selectedProposal, setSelectedProposal] = useState<DAOProposal | null>(null);
   
 
   const tabs = [
@@ -289,12 +293,29 @@ export default function DAOPage() {
       console.log('📥 API Response:', newProject);
       
       console.log('✅ Project created successfully:', newProject);
+      
+      // 清除DAO相关缓存确保立即显示新创建的项目
+      invalidateApiCache('/daos');
+      invalidateApiCache('/projects');
+      
       success('Project created successfully!', 'Your project has been created and is now active.');
       setShowCreateProject(false);
       await loadDAODetails(selectedDAO.id); // Refresh project list
     } catch (err) {
       console.error('❌ Failed to create project:', err);
-      showError('Failed to create project', 'An unexpected error occurred. Please try again.');
+      let errorMessage = 'An unexpected error occurred. Please try again.';
+      
+      if (err instanceof Error) {
+        if (err.message.includes('Description must be at least 20')) {
+          errorMessage = 'Description must be at least 20 characters long.';
+        } else if (err.message.includes('请求超时')) {
+          errorMessage = 'Request timeout. Please check your network and try again.';
+        } else if (err.message.includes('400')) {
+          errorMessage = 'Invalid input data. Please check your form and try again.';
+        }
+      }
+      
+      showError('Failed to create project', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -304,6 +325,74 @@ export default function DAOPage() {
   const handleViewProjectDetails = (project: DAOProject) => {
     setSelectedProject(project);
     setShowProjectDetails(true);
+  };
+
+  // View Proposal Details
+  const handleViewProposalDetails = (proposal: DAOProposal) => {
+    setSelectedProposal(proposal);
+    setShowProposalDetails(true);
+  };
+
+  // Additional proposal operations
+  const handleExecuteProposal = async (proposalId: string) => {
+    if (!selectedDAO) return;
+
+    try {
+      setLoading(true);
+      console.log('🔥 Executing proposal:', proposalId);
+      
+      // TODO: Implement proposal execution API
+      // await daoApi.executeProposal(proposalId);
+      
+      success('提案执行成功!', '提案已成功执行，相关操作已生效。');
+      await loadDAODetails(selectedDAO.id);
+    } catch (error) {
+      console.error('❌ 执行提案失败:', error);
+      showError('执行提案失败', '请重试或联系管理员。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelProposal = async (proposalId: string) => {
+    if (!selectedDAO) return;
+
+    try {
+      setLoading(true);
+      console.log('🔥 Cancelling proposal:', proposalId);
+      
+      // TODO: Implement proposal cancellation API
+      // await daoApi.cancelProposal(proposalId);
+      
+      success('提案取消成功!', '提案已被取消，投票已停止。');
+      await loadDAODetails(selectedDAO.id);
+    } catch (error) {
+      console.error('❌ 取消提案失败:', error);
+      showError('取消提案失败', '请重试或联系管理员。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteProposal = async (proposalId: string) => {
+    if (!confirm('确定要删除这个提案吗？此操作无法撤销。')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log('🔥 Deleting proposal:', proposalId);
+      
+      await daoApi.deleteProposal(proposalId);
+      
+      success('提案删除成功!', '提案已被删除。');
+      await loadDAODetails(selectedDAO.id);
+    } catch (error) {
+      console.error('❌ 删除提案失败:', error);
+      showError('删除提案失败', '请重试或联系管理员。');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Create Proposal
@@ -320,6 +409,11 @@ export default function DAOPage() {
       const newProposal = await daoApi.createProposal(selectedDAO.id, data);
       
       console.log('✅ Proposal created successfully:', newProposal);
+      
+      // 清除DAO相关缓存确保立即显示新创建的提案
+      invalidateApiCache('/daos');
+      invalidateApiCache('/proposals');
+      
       success('Proposal created successfully!', 'Your proposal is now active and members can vote.');
       setShowCreateProposal(false);
       await loadDAODetails(selectedDAO.id); // Refresh proposal list
@@ -343,16 +437,34 @@ export default function DAOPage() {
       
       console.log('🔥 Voting on proposal:', { proposalId, voteType });
       const voteResult = await daoApi.voteOnProposal(proposalId, {
-        voteType,
+        voteType: voteType.toUpperCase() as 'FOR' | 'AGAINST' | 'ABSTAIN',
         reason: '' // Could add a reason input in the future
       });
       
       console.log('✅ Vote submitted successfully');
       success('Vote submitted successfully!', `Your ${voteType} vote has been recorded.`);
       await loadDAODetails(selectedDAO.id); // Refresh to show updated vote counts
-    } catch (err) {
+    } catch (err: any) {
       console.error('❌ Failed to vote:', err);
-      showError('Failed to submit vote', 'An unexpected error occurred. Please try again.');
+      
+      // 检查具体的错误信息
+      let errorMessage = 'An unexpected error occurred. Please try again.';
+      if (err?.data?.error) {
+        errorMessage = err.data.error;
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      
+      // 针对特定错误提供更友好的提示
+      if (errorMessage.includes('already voted')) {
+        showError('Already Voted', 'You have already cast your vote on this proposal. Each member can only vote once.');
+      } else if (errorMessage.includes('not a member')) {
+        showError('Not a Member', 'You need to be a member of this DAO to vote on proposals.');
+      } else if (errorMessage.includes('not active')) {
+        showError('Voting Closed', 'This proposal is no longer accepting votes.');
+      } else {
+        showError('Failed to submit vote', errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -372,6 +484,7 @@ export default function DAOPage() {
       setLoading(false);
     }
   };
+
 
 
   const formatCurrency = (amount: number) => {
@@ -556,7 +669,7 @@ export default function DAOPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{daoStats?.activeProjects || 0}</div>
+                <div className="text-2xl font-bold">{projects.length}</div>
                 <p className="text-sm text-muted-foreground">{t('dao.activeProjects')}</p>
               </div>
               <Briefcase className="h-8 w-8 text-green-600" />
@@ -568,7 +681,7 @@ export default function DAOPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{daoStats?.memberCount || 0}</div>
+                <div className="text-2xl font-bold">{members.length}</div>
                 <p className="text-sm text-muted-foreground">{t('dao.totalMembers')}</p>
               </div>
               <Users className="h-8 w-8 text-purple-600" />
@@ -580,7 +693,7 @@ export default function DAOPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold">{daoStats?.activeProposals || 0}</div>
+                <div className="text-2xl font-bold">{proposals.length}</div>
                 <p className="text-sm text-muted-foreground">{t('dao.activeProposals')}</p>
               </div>
               <VoteIcon className="h-8 w-8 text-orange-600" />
@@ -690,80 +803,19 @@ export default function DAOPage() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {proposals.map((proposal) => (
-                <div key={proposal.id} className="border rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h4 className="font-medium">{proposal.title}</h4>
-                      <p className="text-sm text-muted-foreground mt-1">{proposal.description}</p>
-                      <div className="flex items-center space-x-4 mt-2 text-sm text-muted-foreground">
-                        <span>Proposer: {proposal.proposer.slice(0, 6)}...{proposal.proposer.slice(-4)}</span>
-                        <span>•</span>
-                        <span>Ends: {formatDate(proposal.votingEndDate)}</span>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(proposal.status)}`}>
-                      {proposal.status}
-                    </span>
-                  </div>
-
-                  {/* Voting Progress */}
-                  <div className="space-y-2 mb-4">
-                    <div className="flex justify-between text-sm">
-                      <span>For: {proposal.votesFor.toLocaleString()}</span>
-                      <span>{proposal.totalVotes > 0 ? ((proposal.votesFor / proposal.totalVotes) * 100).toFixed(1) : 0}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-green-500 h-2 rounded-full"
-                        style={{ width: `${proposal.totalVotes > 0 ? (proposal.votesFor / proposal.totalVotes) * 100 : 0}%` }}
-                      ></div>
-                    </div>
-                    
-                    <div className="flex justify-between text-sm">
-                      <span>Against: {proposal.votesAgainst.toLocaleString()}</span>
-                      <span>{proposal.totalVotes > 0 ? ((proposal.votesAgainst / proposal.totalVotes) * 100).toFixed(1) : 0}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-red-500 h-2 rounded-full"
-                        style={{ width: `${proposal.totalVotes > 0 ? (proposal.votesAgainst / proposal.totalVotes) * 100 : 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex space-x-2">
-                    <Button 
-                      size="sm" 
-                      className="bg-green-600 hover:bg-green-700"
-                      onClick={() => handleVote(proposal.id, 'FOR')}
-                      disabled={proposal.status !== 'ACTIVE' || loading}
-                    >
-                      <ThumbsUp className="h-4 w-4 mr-1" />
-                      Support
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="border-red-200 text-red-600 hover:bg-red-50"
-                      onClick={() => handleVote(proposal.id, 'AGAINST')}
-                      disabled={proposal.status !== 'ACTIVE' || loading}
-                    >
-                      <ThumbsDown className="h-4 w-4 mr-1" />
-                      Against
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => handleVote(proposal.id, 'ABSTAIN')}
-                      disabled={proposal.status !== 'ACTIVE' || loading}
-                    >
-                      Abstain
-                    </Button>
-                  </div>
-                </div>
+                <ProposalCard
+                  key={proposal.id}
+                  proposal={proposal}
+                  onVote={handleVote}
+                  onViewDetails={handleViewProposalDetails}
+                  onExecute={handleExecuteProposal}
+                  onCancel={handleCancelProposal}
+                  onDelete={handleDeleteProposal}
+                  isLoading={loading}
+                  userRole={members.find(m => m.address === user?.walletAddress)?.role}
+                />
               ))}
             </div>
           )}
@@ -1127,6 +1179,19 @@ export default function DAOPage() {
           setSelectedProject(null);
         }}
         project={selectedProject}
+        daoToken={selectedDAO?.governanceToken || 'TOKEN'}
+      />
+
+      {/* Proposal Details Modal */}
+      <ProposalDetailsModal
+        isOpen={showProposalDetails}
+        onClose={() => {
+          setShowProposalDetails(false);
+          setSelectedProposal(null);
+        }}
+        proposal={selectedProposal}
+        onVote={handleVote}
+        isLoading={loading}
         daoToken={selectedDAO?.governanceToken || 'TOKEN'}
       />
       

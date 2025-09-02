@@ -135,7 +135,30 @@ export function CreateProposalModal({ isOpen, onClose, onSuccess }: CreatePropos
                   placeholder="Enter a clear, descriptive title"
                   required
                   disabled={isSubmitting}
+                  className={formData.title.length < 5 && formData.title.length > 0 ? 'border-red-300 focus:ring-red-500' : ''}
                 />
+                <div className="flex justify-between items-center mt-1">
+                  <div className="text-xs">
+                    {formData.title.length < 5 && formData.title.length > 0 && (
+                      <span className="text-red-600">
+                        标题至少需要5个字符 (当前: {formData.title.length}/5)
+                      </span>
+                    )}
+                    {formData.title.length >= 5 && (
+                      <span className="text-green-600">
+                        ✓ 标题长度符合要求
+                      </span>
+                    )}
+                    {formData.title.length === 0 && (
+                      <span className="text-gray-500">
+                        请输入至少5个字符的标题
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {formData.title.length}/200
+                  </span>
+                </div>
               </div>
 
               <div>
@@ -172,7 +195,30 @@ export function CreateProposalModal({ isOpen, onClose, onSuccess }: CreatePropos
                   rows={5}
                   required
                   disabled={isSubmitting}
+                  className={formData.description.length < 20 && formData.description.length > 0 ? 'border-red-300 focus:ring-red-500' : ''}
                 />
+                <div className="flex justify-between items-center mt-1">
+                  <div className="text-xs">
+                    {formData.description.length < 20 && formData.description.length > 0 && (
+                      <span className="text-red-600">
+                        描述至少需要20个字符 (当前: {formData.description.length}/20)
+                      </span>
+                    )}
+                    {formData.description.length >= 20 && (
+                      <span className="text-green-600">
+                        ✓ 描述长度符合要求
+                      </span>
+                    )}
+                    {formData.description.length === 0 && (
+                      <span className="text-gray-500">
+                        请输入至少20个字符的详细描述
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {formData.description.length}/5000
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -261,7 +307,7 @@ export function CreateProposalModal({ isOpen, onClose, onSuccess }: CreatePropos
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || !formData.title || !formData.description}
+                disabled={isSubmitting || !formData.title || formData.title.length < 5 || !formData.description || formData.description.length < 20}
               >
                 {isSubmitting ? 'Creating...' : 'Create Proposal'}
               </Button>

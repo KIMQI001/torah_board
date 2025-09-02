@@ -3,6 +3,18 @@ export declare class ExternalApiService {
     private static readonly HELIUM_API_BASE;
     private static readonly REQUEST_TIMEOUT;
     private static readonly MAX_RETRIES;
+    private static readonly API_RATE_LIMIT;
+    private static readonly API_DELAY;
+    /**
+     * 简单的并发控制队列
+     */
+    private static activeRequests;
+    private static requestQueue;
+    private static processQueue;
+    /**
+     * 受限流控制的API请求
+     */
+    private static throttledRequest;
     /**
      * Retry mechanism for API calls
      */

@@ -142,7 +142,85 @@ export interface AuthResponse {
 }
 
 // Store JWT token
-let authToken: string | null = null;
+let authToken: string | null = process.env.NODE_ENV === 'development' ? 'dev-token-test' : null;
+
+// Smart cache for Filecoin API data
+interface CacheItem<T> {
+  data: T;
+  timestamp: number;
+  endpoint: string;
+}
+
+class SmartCache {
+  private cache = new Map<string, CacheItem<any>>();
+  private defaultTTL = 5 * 60 * 1000; // 5分钟默认缓存
+  private filecoinTTL = 2 * 60 * 1000; // Filecoin数据2分钟缓存（更短，因为收益数据变化快）
+
+  get<T>(key: string, endpoint: string): T | null {
+    const item = this.cache.get(key);
+    if (!item) return null;
+
+    const ttl = this.getTTL(endpoint);
+    if (Date.now() - item.timestamp > ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    console.log('💾 从缓存获取数据:', { key, age: Math.round((Date.now() - item.timestamp) / 1000) + 's' });
+    return item.data;
+  }
+
+  set<T>(key: string, data: T, endpoint: string): void {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      endpoint
+    });
+    
+    console.log('💾 数据已缓存:', { key, endpoint, cacheSize: this.cache.size });
+  }
+
+  private getTTL(endpoint: string): number {
+    // Filecoin 相关数据缓存时间较短
+    if (endpoint.includes('/earnings') || endpoint.includes('/capacity')) {
+      return this.filecoinTTL;
+    }
+    // DAO相关数据需要更快更新，使用较短缓存
+    if (endpoint.includes('/dao') || endpoint.includes('/project') || endpoint.includes('/proposal')) {
+      return 30 * 1000; // 30秒缓存，确保创建后能快速看到更新
+    }
+    return this.defaultTTL;
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  // 清除特定endpoint相关的缓存
+  invalidateCache(pattern: string): void {
+    const keysToDelete = Array.from(this.cache.keys()).filter(key => 
+      key.includes(pattern)
+    );
+    keysToDelete.forEach(key => {
+      this.cache.delete(key);
+      console.log('💾 缓存已清除:', { key, pattern });
+    });
+  }
+
+  getCacheInfo() {
+    return {
+      size: this.cache.size,
+      items: Array.from(this.cache.entries()).map(([key, item]) => ({
+        key,
+        endpoint: item.endpoint,
+        age: Math.round((Date.now() - item.timestamp) / 1000),
+        expired: Date.now() - item.timestamp > this.getTTL(item.endpoint)
+      }))
+    };
+  }
+}
+
+const smartCache = new SmartCache();
 
 export const setAuthToken = (token: string) => {
   authToken = token;
@@ -152,9 +230,18 @@ export const setAuthToken = (token: string) => {
 };
 
 export const getAuthToken = (): string | null => {
+  // 在开发环境中，如果没有设置token，使用默认开发token
+  if (process.env.NODE_ENV === 'development' && !authToken) {
+    authToken = 'dev-token-test';
+  }
+  
   if (authToken) return authToken;
   if (typeof window !== 'undefined') {
     authToken = localStorage.getItem('auth_token');
+    // 如果localStorage也没有，且在开发环境中，使用默认开发token
+    if (!authToken && process.env.NODE_ENV === 'development') {
+      authToken = 'dev-token-test';
+    }
   }
   return authToken;
 };
@@ -164,6 +251,23 @@ export const clearAuthToken = () => {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('auth_token');
   }
+  // 清除认证token时也清除缓存
+  smartCache.clear();
+};
+
+// 导出缓存管理函数
+export const clearApiCache = () => {
+  smartCache.clear();
+  console.log('🗑️ API缓存已清除');
+};
+
+export const invalidateApiCache = (pattern: string) => {
+  smartCache.invalidateCache(pattern);
+  console.log('🗑️ API缓存已按模式清除:', pattern);
+};
+
+export const getApiCacheInfo = () => {
+  return smartCache.getCacheInfo();
 };
 
 // Generic API request function with retry logic
@@ -182,6 +286,29 @@ async function apiRequest<T>(
     tokenPreview: token ? `${token.substring(0, 10)}...` : 'none'
   });
   
+  // 创建缓存键（包含认证信息以确保用户隔离）
+  const cacheKey = `${endpoint}:${JSON.stringify(options)}:${token?.substring(0, 10) || 'anon'}`;
+  
+  // 对于GET请求，尝试从缓存获取数据
+  if ((!options.method || options.method.toUpperCase() === 'GET') && retryCount === 0) {
+    const cachedData = smartCache.get(cacheKey, endpoint);
+    if (cachedData) {
+      return cachedData;
+    }
+  }
+  
+  // 根据请求类型设置不同的超时时间和重试次数
+  let timeout = 10000; // 默认10秒
+  let customMaxRetries = maxRetries;
+  
+  if (endpoint.includes('/earnings') || endpoint.includes('/capacity')) {
+    timeout = 35000; // 收益和容量查询需要更长时间（35秒）
+    customMaxRetries = 3; // Filecoin API 需要更多重试机会
+  } else if (endpoint.includes('/dashboard/stats')) {
+    timeout = 25000; // 仪表板统计需要中等时间（25秒）
+    customMaxRetries = 3; // 仪表板统计也需要更多重试
+  }
+  
   const config: RequestInit = {
     headers: {
       'Content-Type': 'application/json',
@@ -192,11 +319,17 @@ async function apiRequest<T>(
   };
 
   try {
-    console.log('🔥 API请求:', { url, method: config.method || 'GET', hasAuth: !!token });
+    console.log('🔥 API请求:', { 
+      url, 
+      method: config.method || 'GET', 
+      hasAuth: !!token,
+      timeout: `${timeout}ms`,
+      attempt: retryCount + 1
+    });
     
-    // Test network connectivity
+    // Test network connectivity with dynamic timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
     
     const response = await fetch(url, { 
       ...config, 
@@ -218,6 +351,17 @@ async function apiRequest<T>(
       console.error('❌ API响应错误 - URL:', url);
       console.error('❌ API响应错误 - Body:', errorText);
       console.error('❌ API响应错误 - ContentType:', response.headers.get('content-type'));
+      console.error('❌ API响应错误 - Method:', config.method || 'GET');
+      console.error('❌ API响应错误 - Headers:', JSON.stringify(Object.fromEntries(response.headers)));
+      
+      // Try to parse error body as JSON
+      let parsedError;
+      try {
+        parsedError = JSON.parse(errorText);
+        console.error('❌ API错误详情:', parsedError);
+      } catch (e) {
+        console.error('❌ 无法解析错误响应为JSON');
+      }
       
       const errorInfo = {
         status: response.status,
@@ -229,11 +373,11 @@ async function apiRequest<T>(
       
       console.error('❌ Complete error info:', JSON.stringify(errorInfo, null, 2));
       
-      if (response.status === 429 && retryCount < maxRetries) {
+      if (response.status === 429 && retryCount < customMaxRetries) {
         const retryAfter = parseInt(response.headers.get('retry-after') || '1');
         const delay = Math.min(retryAfter * 1000, 5000); // Max 5 seconds
         
-        console.log(`⏳ Rate limited, retrying after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+        console.log(`⏳ Rate limited, retrying after ${delay}ms (attempt ${retryCount + 1}/${customMaxRetries})`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         return apiRequest<T>(endpoint, options, retryCount + 1, maxRetries);
@@ -255,6 +399,21 @@ async function apiRequest<T>(
     if (responseData && typeof responseData === 'object' && 'success' in responseData) {
       if (responseData.success) {
         console.log('✅ 提取数据字段:', responseData.data);
+        
+        // 对于GET请求，将成功的响应缓存起来
+        if (!options.method || options.method.toUpperCase() === 'GET') {
+          smartCache.set(cacheKey, responseData.data, endpoint);
+        } else {
+          // 对于POST/PUT/DELETE等修改操作，清除相关缓存
+          const method = options.method?.toUpperCase();
+          if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method || '')) {
+            // 清除与该endpoint相关的缓存
+            const basePath = endpoint.split('/').slice(0, -1).join('/'); // 移除最后的ID等参数
+            smartCache.invalidateCache(basePath);
+            console.log('🔄 修改操作完成，已清除相关缓存:', { method, endpoint, basePath });
+          }
+        }
+        
         return responseData.data;
       } else {
         // API返回success: false的错误
@@ -266,11 +425,42 @@ async function apiRequest<T>(
     
     // 如果不是标准格式，直接返回
     console.log('ℹ️ 非标准API响应，直接返回:', responseData);
+    
+    // 对于GET请求，也缓存非标准格式的响应
+    if (!options.method || options.method.toUpperCase() === 'GET') {
+      smartCache.set(cacheKey, responseData, endpoint);
+    } else {
+      // 对于POST/PUT/DELETE等修改操作，清除相关缓存
+      const method = options.method?.toUpperCase();
+      if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method || '')) {
+        // 清除与该endpoint相关的缓存
+        const basePath = endpoint.split('/').slice(0, -1).join('/'); // 移除最后的ID等参数
+        smartCache.invalidateCache(basePath);
+        console.log('🔄 修改操作完成，已清除相关缓存(非标准格式):', { method, endpoint, basePath });
+      }
+    }
+    
     return responseData;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      console.error('⏰ API请求超时:', { url, timeout: '10s' });
-      throw new Error('API request timed out');
+      console.error('⏰ API请求超时:', { 
+        url, 
+        timeout: `${timeout}ms`,
+        attempt: retryCount + 1,
+        maxRetries 
+      });
+      
+      // 对于超时，如果还有重试次数，就重试
+      if (retryCount < customMaxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 5000); // 指数退避，最大5秒
+        console.log(`⏳ API超时重试，等待 ${delay}ms 后重试 (尝试 ${retryCount + 2}/${customMaxRetries + 1})`);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return apiRequest<T>(endpoint, options, retryCount + 1, maxRetries);
+      } else {
+        const timeoutSeconds = Math.round(timeout / 1000);
+        throw new Error(`请求超时（${timeoutSeconds}秒）- 服务器响应时间过长，请稍后重试`);
+      }
     } else if (error instanceof TypeError && error.message.includes('fetch')) {
       console.error('🌐 网络连接失败:', { 
         url, 
@@ -284,7 +474,8 @@ async function apiRequest<T>(
         error: error instanceof Error ? error.message : String(error),
         errorType: typeof error,
         errorName: error instanceof Error ? error.name : 'unknown',
-        stack: error instanceof Error ? error.stack?.substring(0, 300) : undefined
+        stack: error instanceof Error ? error.stack?.substring(0, 300) : undefined,
+        attempt: retryCount + 1
       });
       throw error;
     }
@@ -780,7 +971,7 @@ export interface DAOMember {
   daoId: string;
   userId: string;
   address: string;
-  role: 'ADMIN' | 'MEMBER';
+  role: 'CHAIR' | 'ADMIN' | 'MEMBER';
   votingPower: number;
   reputation: number;
   contributionScore: number;
@@ -819,6 +1010,12 @@ export interface DAOProposal {
   executedDate?: string;
   createdAt: string;
   votes?: DAOVote[];
+  userVote?: {
+    voteType: 'FOR' | 'AGAINST' | 'ABSTAIN';
+    votingPower: number;
+    votedAt: string;
+    reason?: string;
+  };
 }
 
 export interface DAOProject {
@@ -1027,6 +1224,12 @@ export const daoApi = {
     });
   },
 
+  async deleteProposal(id: string) {
+    return apiRequest<{ id: string }>(`/proposals/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
   // Projects
   async getProjects(daoId: string, status?: string, page = 1, limit = 20) {
     const params = new URLSearchParams({
@@ -1102,7 +1305,7 @@ export const daoApi = {
     }>(`/daos/${daoId}/members/${memberId}/activity`);
   },
 
-  async updateMemberRole(daoId: string, memberId: string, role: 'ADMIN' | 'MEMBER') {
+  async updateMemberRole(daoId: string, memberId: string, role: 'CHAIR' | 'ADMIN' | 'MEMBER') {
     return apiRequest<DAOMember>(`/daos/${daoId}/members/${memberId}/role`, {
       method: 'PUT',
       body: JSON.stringify({ role }),
@@ -1282,6 +1485,165 @@ export const daoApi = {
     return apiRequest<null>(`/tasks/${id}`, {
       method: 'DELETE',
     });
+  },
+
+  // Spot Trading APIs
+  async getMarketData(params?: {
+    symbols?: string[];
+    exchange?: string;
+    limit?: number;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params?.symbols) {
+      params.symbols.forEach(symbol => searchParams.append('symbols', symbol));
+    }
+    if (params?.exchange) searchParams.set('exchange', params.exchange);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    
+    const query = searchParams.toString();
+    return apiRequest<any[]>(`/spot/markets${query ? '?' + query : ''}`);
+  },
+
+  async getSymbolData(symbol: string, exchange?: string) {
+    const query = exchange ? `?exchange=${exchange}` : '';
+    return apiRequest<any>(`/spot/markets/${symbol}${query}`);
+  },
+
+  async getPriceComparison(symbol: string) {
+    return apiRequest<any>(`/spot/markets/${symbol}/comparison`);
+  },
+
+  async getOrderBook(symbol: string, exchange = 'binance', limit = 20) {
+    return apiRequest<any>(`/spot/markets/${symbol}/orderbook?exchange=${exchange}&limit=${limit}`);
+  },
+
+  async getPriceAlerts(activeOnly = false) {
+    return apiRequest<any[]>(`/spot/alerts?active=${activeOnly}`);
+  },
+
+  async createPriceAlert(data: {
+    symbol: string;
+    targetPrice: number;
+    condition: 'above' | 'below' | 'crosses_above' | 'crosses_below';
+    exchange?: string;
+    message?: string;
+  }) {
+    return apiRequest<any>('/spot/alerts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updatePriceAlert(id: string, data: any) {
+    return apiRequest<any>(`/spot/alerts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deletePriceAlert(id: string) {
+    return apiRequest<any>(`/spot/alerts/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getAnnouncements(params?: {
+    exchange?: string;
+    category?: string;
+    importance?: 'high' | 'medium' | 'low';
+    limit?: number;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params?.exchange) searchParams.set('exchange', params.exchange);
+    if (params?.category) searchParams.set('category', params.category);
+    if (params?.importance) searchParams.set('importance', params.importance);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    
+    const query = searchParams.toString();
+    return apiRequest<any[]>(`/spot/announcements${query ? '?' + query : ''}`);
+  },
+
+  async getHighPriorityAnnouncements() {
+    return apiRequest<any[]>('/spot/announcements/high-priority');
+  },
+
+  async getTokenAnnouncements(symbol: string) {
+    return apiRequest<any[]>(`/spot/announcements/token/${symbol}`);
+  },
+
+  async getPriceAnomalies(symbols?: string[]) {
+    const query = symbols ? `?symbols=${symbols.join(',')}` : '';
+    return apiRequest<any[]>(`/spot/anomalies${query}`);
+  },
+
+  async getMarketOverview() {
+    return apiRequest<any>('/spot/stats/overview');
+  },
+
+  async getTrendingTokens(limit = 20) {
+    return apiRequest<any[]>(`/spot/stats/trending?limit=${limit}`);
+  },
+
+  async getTopGainers(limit = 20) {
+    return apiRequest<any[]>(`/spot/stats/gainers?limit=${limit}`);
+  },
+
+  async getTopLosers(limit = 20) {
+    return apiRequest<any[]>(`/spot/stats/losers?limit=${limit}`);
+  },
+
+  // 收藏功能相关API
+  async getFavoriteSymbols() {
+    return apiRequest<any[]>('/spot/favorites');
+  },
+
+  async addFavoriteSymbol(symbol: string, baseAsset: string, quoteAsset: string) {
+    return apiRequest<any>('/spot/favorites', {
+      method: 'POST',
+      body: JSON.stringify({ symbol, baseAsset, quoteAsset })
+    });
+  },
+
+  async removeFavoriteSymbol(symbol: string) {
+    return apiRequest<any>(`/spot/favorites/${symbol}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // 交易所币种数据库API
+  async searchExchangeSymbols(query: string = '', limit: number = 50, exchanges?: string[]) {
+    const params = new URLSearchParams({
+      q: query,
+      limit: limit.toString()
+    });
+    
+    if (exchanges && exchanges.length > 0) {
+      exchanges.forEach(exchange => params.append('exchanges', exchange));
+    }
+    
+    return apiRequest<any[]>(`/spot/symbols/search?${params.toString()}`);
+  },
+
+  async getAllExchangeSymbols(limit: number = 1000, exchanges?: string[]) {
+    const params = new URLSearchParams({
+      limit: limit.toString()
+    });
+    
+    if (exchanges && exchanges.length > 0) {
+      exchanges.forEach(exchange => params.append('exchanges', exchange));
+    }
+    
+    return apiRequest<any[]>(`/spot/symbols/all?${params.toString()}`);
+  },
+
+  async updateExchangeSymbols() {
+    return apiRequest<any>('/spot/symbols/update', {
+      method: 'POST'
+    });
+  },
+
+  async getExchangeSymbolsStats() {
+    return apiRequest<any>('/spot/symbols/stats');
   }
 };
 

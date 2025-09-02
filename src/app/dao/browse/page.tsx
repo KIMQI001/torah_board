@@ -54,35 +54,33 @@ export default function BrowseDAOsPage() {
       setError(null);
       
       // Fetch all DAOs from the backend API (without userId to get all public DAOs)
-      const allDAOsResponse = await daoApi.getDAOs();
-      
-      if (allDAOsResponse.success && allDAOsResponse.data) {
-        setDAOs(allDAOsResponse.data);
-      } else {
-        throw new Error(allDAOsResponse.error || 'Failed to fetch DAOs');
-      }
+      const allDAOsData = await daoApi.getDAOs();
+      setDAOs(Array.isArray(allDAOsData) ? allDAOsData : []);
       
       // Also fetch user's DAOs if authenticated to check membership and roles
       if (isAuthenticated && user?.id) {
         try {
-          const userDAOsResponse = await daoApi.getDAOs(user.id);
-          if (userDAOsResponse.success && userDAOsResponse.data) {
-            setUserDAOs(userDAOsResponse.data);
-            
-            // Get user roles for each DAO they're a member of
-            const roles: Record<string, string> = {};
-            for (const dao of userDAOsResponse.data) {
-              // Get detailed DAO info to find member role
-              const detailResponse = await daoApi.getDAO(dao.id);
-              if (detailResponse.success && detailResponse.data?.members) {
-                const member = detailResponse.data.members.find((m: any) => m.userId === user.id);
+          const userDAOsData = await daoApi.getDAOs(user.id);
+          const userDAOsArray = Array.isArray(userDAOsData) ? userDAOsData : [];
+          setUserDAOs(userDAOsArray);
+          
+          // Get user roles for each DAO they're a member of
+          const roles: Record<string, string> = {};
+          for (const dao of userDAOsArray) {
+            // Get detailed DAO info to find member role
+            try {
+              const detailData = await daoApi.getDAO(dao.id);
+              if (detailData?.members) {
+                const member = detailData.members.find((m: any) => m.userId === user.id);
                 if (member) {
                   roles[dao.id] = member.role;
                 }
               }
+            } catch (err) {
+              console.error(`Failed to get details for DAO ${dao.id}:`, err);
             }
-            setUserRoles(roles);
           }
+          setUserRoles(roles);
         } catch (err) {
           console.warn('Failed to load user DAOs:', err);
         }
@@ -101,15 +99,11 @@ export default function BrowseDAOsPage() {
 
   const handleCreateDAO = async (data: any) => {
     try {
-      const response = await daoApi.createDAO(data);
+      const newDAO = await daoApi.createDAO(data);
       
-      if (response.success) {
-        success('DAO created successfully!', 'Your new DAO has been created and you are now an admin.');
-        setShowCreateDAO(false);
-        await loadDAOs(); // Refresh the list
-      } else {
-        throw new Error(response.error || 'Failed to create DAO');
-      }
+      success('DAO created successfully!', 'Your new DAO has been created and you are now an admin.');
+      setShowCreateDAO(false);
+      await loadDAOs(); // Refresh the list
     } catch (err) {
       console.error('Failed to create DAO:', err);
       showError('Failed to create DAO', 'Please check your input and try again.');
@@ -130,14 +124,10 @@ export default function BrowseDAOsPage() {
       setDeleteLoading(daoId);
       setConfirmDialog({ ...confirmDialog, isOpen: false });
       
-      const response = await daoApi.deleteDAO(daoId);
+      await daoApi.deleteDAO(daoId);
       
-      if (response.success) {
-        success('DAO deleted successfully', `"${daoName}" has been permanently removed.`);
-        await loadDAOs();
-      } else {
-        throw new Error(response.error || 'Failed to delete DAO');
-      }
+      success('DAO deleted successfully', `"${daoName}" has been permanently removed.`);
+      await loadDAOs();
     } catch (err) {
       console.error('Failed to delete DAO:', err);
       showError('Failed to delete DAO', 'Please try again later.');
@@ -156,15 +146,11 @@ export default function BrowseDAOsPage() {
       setJoinLoading(daoId);
       
       // Call the real API to join the DAO
-      const response = await daoApi.joinDAO(daoId);
+      await daoApi.joinDAO(daoId);
       
-      if (response.success) {
-        success('Successfully joined DAO!', 'You are now a member and can participate in governance.');
-        // Refresh the DAOs list to reflect membership changes
-        await loadDAOs();
-      } else {
-        throw new Error(response.error || 'Failed to join DAO');
-      }
+      success('Successfully joined DAO!', 'You are now a member and can participate in governance.');
+      // Refresh the DAOs list to reflect membership changes
+      await loadDAOs();
       
     } catch (err) {
       console.error('Failed to join DAO:', err);
@@ -350,7 +336,8 @@ export default function BrowseDAOsPage() {
                     {isAuthenticated && isUserMemberOfDAO(dao.id) ? (
                       <div className="flex space-x-2">
                         <Badge variant="secondary" className="flex-1 justify-center">
-                          {userRoles[dao.id] === 'ADMIN' ? 'Admin' : 'Member'}
+                          {userRoles[dao.id] === 'CHAIR' ? 'Chair' : 
+                           userRoles[dao.id] === 'ADMIN' ? 'Admin' : 'Member'}
                         </Badge>
                         <Link href={`/dao?id=${dao.id}`}>
                           <Button variant="outline" size="sm">

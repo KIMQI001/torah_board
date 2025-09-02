@@ -9,6 +9,51 @@ const proposal_execution_service_1 = require("@/services/proposal-execution.serv
 const treasury_service_1 = require("@/services/treasury.service");
 class DAOProposalsController {
     /**
+     * Helper to attach user vote info to proposals
+     */
+    static async attachUserVoteInfo(proposals, userId) {
+        if (!userId)
+            return proposals;
+        // Get user's member IDs for all DAOs
+        const memberIds = await database_1.prisma.dAOMember.findMany({
+            where: { userId },
+            select: { id: true, daoId: true }
+        });
+        const memberIdMap = new Map(memberIds.map(m => [m.daoId, m.id]));
+        // For each proposal, check if user has voted
+        return Promise.all(proposals.map(async (proposal) => {
+            const memberId = memberIdMap.get(proposal.daoId);
+            if (!memberId)
+                return proposal;
+            const userVote = await database_1.prisma.dAOVote.findUnique({
+                where: {
+                    proposalId_memberId: {
+                        proposalId: proposal.id,
+                        memberId
+                    }
+                },
+                select: {
+                    voteType: true,
+                    votingPower: true,
+                    timestamp: true,
+                    reason: true
+                }
+            });
+            return {
+                ...proposal,
+                // 确保时间字段正确映射
+                votingStartDate: proposal.startTime ? new Date(proposal.startTime).toISOString() : proposal.startTime,
+                votingEndDate: proposal.endTime ? new Date(proposal.endTime).toISOString() : proposal.endTime,
+                userVote: userVote ? {
+                    voteType: userVote.voteType,
+                    votingPower: userVote.votingPower,
+                    votedAt: userVote.timestamp.toISOString(),
+                    reason: userVote.reason
+                } : undefined
+            };
+        }));
+    }
+    /**
      * Get proposals for a DAO
      */
     static async getProposals(req, res) {
@@ -41,7 +86,9 @@ class DAOProposalsController {
                 skip: (parseInt(page) - 1) * parseInt(limit),
                 take: parseInt(limit)
             });
-            response_1.ResponseUtil.success(res, proposals);
+            // Attach user vote info if user is authenticated
+            const proposalsWithUserVote = await DAOProposalsController.attachUserVoteInfo(proposals, req.user?.id);
+            response_1.ResponseUtil.success(res, proposalsWithUserVote);
         }
         catch (error) {
             logger_1.Logger.error('Error fetching proposals', { error });
@@ -85,7 +132,14 @@ class DAOProposalsController {
                 response_1.ResponseUtil.notFound(res, 'Proposal not found');
                 return;
             }
-            response_1.ResponseUtil.success(res, proposal);
+            // Attach user vote info if user is authenticated
+            if (req.user?.id) {
+                const [proposalWithUserVote] = await DAOProposalsController.attachUserVoteInfo([proposal], req.user.id);
+                response_1.ResponseUtil.success(res, proposalWithUserVote);
+            }
+            else {
+                response_1.ResponseUtil.success(res, proposal);
+            }
         }
         catch (error) {
             logger_1.Logger.error('Error fetching proposal', { error });
@@ -122,7 +176,7 @@ class DAOProposalsController {
             }
             const now = new Date();
             const votingDays = votingPeriodDays || dao.votingPeriod;
-            const startTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Start tomorrow
+            const startTime = now; // Start immediately
             const endTime = new Date(startTime.getTime() + votingDays * 24 * 60 * 60 * 1000);
             const proposal = await database_1.prisma.dAOProposal.create({
                 data: {
@@ -130,7 +184,7 @@ class DAOProposalsController {
                     title,
                     description,
                     proposer: member.address,
-                    status: 'DRAFT',
+                    status: 'ACTIVE',
                     category: category.toUpperCase(),
                     requestedAmount,
                     quorum: dao.quorumThreshold,
@@ -154,6 +208,7 @@ class DAOProposalsController {
                 daoId,
                 createdBy: userId
             });
+            res.status(201);
             response_1.ResponseUtil.success(res, proposal, 'Proposal created successfully');
         }
         catch (error) {
@@ -166,38 +221,71 @@ class DAOProposalsController {
      */
     static async voteOnProposal(req, res) {
         try {
+            logger_1.Logger.info('=== Vote request started ===', {
+                userId: req.user?.id,
+                params: req.params,
+                body: req.body
+            });
             const userId = req.user?.id;
             if (!userId) {
+                logger_1.Logger.warn('Vote failed: No user ID');
                 response_1.ResponseUtil.unauthorized(res);
                 return;
             }
             const { id } = req.params;
             const { voteType, reason } = req.body;
+            logger_1.Logger.info('Step 1: Getting proposal', { proposalId: id });
             // Get proposal
             const proposal = await database_1.prisma.dAOProposal.findUnique({
                 where: { id }
             });
             if (!proposal) {
+                logger_1.Logger.warn('Vote failed: Proposal not found', { proposalId: id });
                 response_1.ResponseUtil.notFound(res, 'Proposal not found');
                 return;
             }
+            logger_1.Logger.info('Step 2: Proposal found, checking status', {
+                proposalId: id,
+                status: proposal.status,
+                startTime: proposal.startTime,
+                endTime: proposal.endTime,
+                currentTime: new Date()
+            });
             // Check if proposal is active
             const now = new Date();
             if (proposal.status !== 'ACTIVE' || now > proposal.endTime || now < proposal.startTime) {
+                logger_1.Logger.warn('Vote failed: Voting not active', {
+                    status: proposal.status,
+                    isExpired: now > proposal.endTime,
+                    notStarted: now < proposal.startTime
+                });
                 response_1.ResponseUtil.error(res, 'Voting is not active for this proposal');
                 return;
             }
+            logger_1.Logger.info('Step 3: Checking DAO membership', { daoId: proposal.daoId, userId });
             // Check if user is member of DAO
             const member = await database_1.prisma.dAOMember.findFirst({
                 where: {
                     daoId: proposal.daoId,
                     userId
+                },
+                select: {
+                    id: true,
+                    votingPower: true,
+                    role: true,
+                    address: true
                 }
             });
             if (!member) {
+                logger_1.Logger.warn('Vote failed: User not a DAO member', { daoId: proposal.daoId, userId });
                 response_1.ResponseUtil.forbidden(res, 'You must be a DAO member to vote');
                 return;
             }
+            logger_1.Logger.info('Step 4: Member found, checking existing vote', {
+                memberId: member.id,
+                memberAddress: member.address,
+                votingPower: member.votingPower
+            });
             // Check if already voted
             const existingVote = await database_1.prisma.dAOVote.findUnique({
                 where: {
@@ -208,11 +296,23 @@ class DAOProposalsController {
                 }
             });
             if (existingVote) {
+                logger_1.Logger.warn('Vote failed: Already voted', {
+                    existingVote: {
+                        voteType: existingVote.voteType,
+                        timestamp: existingVote.timestamp
+                    }
+                });
                 response_1.ResponseUtil.error(res, 'You have already voted on this proposal');
                 return;
             }
+            logger_1.Logger.info('Step 5: Creating vote record', {
+                proposalId: id,
+                memberId: member.id,
+                voteType: voteType.toUpperCase(),
+                votingPower: member.votingPower || 1
+            });
             // Calculate current voting power
-            const currentVotingPower = await voting_weight_service_1.VotingWeightService.calculateVotingPower(member.id);
+            const currentVotingPower = member.votingPower || 1;
             // Create vote
             const vote = await database_1.prisma.dAOVote.create({
                 data: {
@@ -223,16 +323,52 @@ class DAOProposalsController {
                     reason
                 }
             });
+            logger_1.Logger.info('Step 6: Vote created, updating proposal counts', {
+                voteId: vote.id,
+                voteType: vote.voteType
+            });
             // Update proposal vote counts
             const voteField = voteType === 'FOR' ? 'votesFor' :
                 voteType === 'AGAINST' ? 'votesAgainst' : 'votesAbstain';
-            await database_1.prisma.dAOProposal.update({
+            const updatedProposal = await database_1.prisma.dAOProposal.update({
                 where: { id },
                 data: {
                     [voteField]: { increment: currentVotingPower },
                     totalVotes: { increment: currentVotingPower }
                 }
             });
+            logger_1.Logger.info('Step 7: Proposal updated, checking auto-close conditions', {
+                totalVotingPower: updatedProposal.totalVotes,
+                votesFor: updatedProposal.votesFor,
+                votesAgainst: updatedProposal.votesAgainst
+            });
+            // Check if we should auto-close the proposal (>50% threshold)
+            if (updatedProposal.totalVotes > 0) {
+                const forPercentage = (updatedProposal.votesFor / updatedProposal.totalVotes) * 100;
+                const againstPercentage = (updatedProposal.votesAgainst / updatedProposal.totalVotes) * 100;
+                logger_1.Logger.info('Vote percentages calculated', {
+                    forPercentage: forPercentage.toFixed(2),
+                    againstPercentage: againstPercentage.toFixed(2)
+                });
+                // Auto-close if either side has >50%
+                if (forPercentage > 50 || againstPercentage > 50) {
+                    const finalStatus = forPercentage > 50 ? 'PASSED' : 'FAILED';
+                    logger_1.Logger.info('🎯 Auto-closing proposal due to majority vote', {
+                        proposalId: id,
+                        finalStatus,
+                        forPercentage: forPercentage.toFixed(2),
+                        againstPercentage: againstPercentage.toFixed(2)
+                    });
+                    await database_1.prisma.dAOProposal.update({
+                        where: { id },
+                        data: {
+                            status: finalStatus,
+                            endTime: now // Close voting immediately
+                        }
+                    });
+                }
+            }
+            logger_1.Logger.info('Step 8: Updating member activity');
             // Update member activity
             await database_1.prisma.dAOMember.update({
                 where: { id: member.id },
@@ -241,16 +377,26 @@ class DAOProposalsController {
                     lastActivity: now
                 }
             });
-            logger_1.Logger.info('Vote cast', {
+            logger_1.Logger.info('✅ Vote cast successfully', {
                 proposalId: id,
                 memberId: member.id,
                 voteType,
-                votingPower: currentVotingPower
+                votingPower: currentVotingPower,
+                updatedCounts: {
+                    votesFor: updatedProposal.votesFor,
+                    votesAgainst: updatedProposal.votesAgainst,
+                    totalVotes: updatedProposal.totalVotes
+                }
             });
             response_1.ResponseUtil.success(res, vote, 'Vote cast successfully');
         }
         catch (error) {
-            logger_1.Logger.error('Error voting on proposal', { error });
+            logger_1.Logger.error('❌ Error voting on proposal', {
+                error: error.message,
+                stack: error.stack,
+                userId: req.user?.id,
+                proposalId: req.params.id
+            });
             response_1.ResponseUtil.error(res, 'Failed to cast vote');
         }
     }
@@ -369,6 +515,57 @@ class DAOProposalsController {
         catch (error) {
             logger_1.Logger.error('Error executing proposal', { error });
             response_1.ResponseUtil.error(res, 'Failed to execute proposal');
+        }
+    }
+    /**
+     * Delete proposal
+     */
+    static async deleteProposal(req, res) {
+        try {
+            const { id } = req.params;
+            const userId = req.user?.id;
+            const proposal = await database_1.prisma.dAOProposal.findUnique({
+                where: { id },
+                include: { dao: true }
+            });
+            if (!proposal) {
+                response_1.ResponseUtil.notFound(res, 'Proposal not found');
+                return;
+            }
+            // Check if user is admin or proposal creator
+            const member = await database_1.prisma.dAOMember.findFirst({
+                where: {
+                    daoId: proposal.daoId,
+                    userId
+                }
+            });
+            if (!member || (member.role !== 'ADMIN' && member.address !== proposal.proposer)) {
+                response_1.ResponseUtil.forbidden(res, 'Only admins or proposal creator can delete proposals');
+                return;
+            }
+            // Can't delete executed or active proposals with votes
+            if (proposal.status === 'EXECUTED') {
+                response_1.ResponseUtil.error(res, 'Cannot delete an executed proposal');
+                return;
+            }
+            // Check if proposal has votes
+            const voteCount = await database_1.prisma.dAOVote.count({
+                where: { proposalId: id }
+            });
+            if (voteCount > 0) {
+                response_1.ResponseUtil.error(res, 'Cannot delete a proposal that already has votes');
+                return;
+            }
+            // Delete the proposal
+            await database_1.prisma.dAOProposal.delete({
+                where: { id }
+            });
+            logger_1.Logger.info('Proposal deleted', { proposalId: id });
+            response_1.ResponseUtil.success(res, { id }, 'Proposal deleted successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Error deleting proposal', { error });
+            response_1.ResponseUtil.error(res, 'Failed to delete proposal');
         }
     }
     /**

@@ -7,6 +7,7 @@ exports.SchedulerService = void 0;
 const node_cron_1 = __importDefault(require("node-cron"));
 const logger_1 = require("@/utils/logger");
 const external_api_service_1 = require("@/services/external-api.service");
+const exchange_symbols_service_1 = require("@/services/exchange-symbols.service");
 const database_1 = require("@/services/database");
 class SchedulerService {
     /**
@@ -24,6 +25,8 @@ class SchedulerService {
         this.schedulePerformanceCleanup();
         // Update token prices every 30 minutes
         this.schedulePriceUpdates();
+        // Update exchange symbols every 6 hours
+        this.scheduleExchangeSymbolsUpdates();
         this.isRunning = true;
         logger_1.Logger.info('Scheduler service initialized successfully');
     }
@@ -264,6 +267,62 @@ class SchedulerService {
             return {
                 success: false,
                 message: `Capacity update failed: ${error.message}`
+            };
+        }
+    }
+    /**
+     * Schedule exchange symbols updates every 6 hours
+     */
+    static scheduleExchangeSymbolsUpdates() {
+        const task = node_cron_1.default.schedule('0 */6 * * *', async () => {
+            try {
+                logger_1.Logger.info('Starting scheduled exchange symbols update...');
+                await exchange_symbols_service_1.ExchangeSymbolsService.updateSymbolsTask();
+                logger_1.Logger.info('Scheduled exchange symbols update completed');
+            }
+            catch (error) {
+                logger_1.Logger.error('Error in scheduled exchange symbols update', {
+                    error: error.message
+                });
+            }
+        }, {
+            scheduled: false,
+            timezone: 'UTC'
+        });
+        task.start();
+        this.tasks.set('exchange-symbols-update', task);
+        logger_1.Logger.info('Scheduled exchange symbols updates every 6 hours');
+    }
+    /**
+     * Manually trigger exchange symbols update
+     */
+    static async triggerExchangeSymbolsUpdate() {
+        try {
+            logger_1.Logger.info('Manual exchange symbols update triggered');
+            const startTime = Date.now();
+            await exchange_symbols_service_1.ExchangeSymbolsService.updateSymbolsTask();
+            const endTime = Date.now();
+            const totalSymbols = await database_1.prisma.exchangeSymbol.count({
+                where: { status: 'TRADING' }
+            });
+            const stats = {
+                totalSymbols,
+                updateTime: `${(endTime - startTime) / 1000}s`
+            };
+            logger_1.Logger.info('Manual exchange symbols update completed', stats);
+            return {
+                success: true,
+                message: `Exchange symbols update completed: ${totalSymbols} symbols updated in ${stats.updateTime}`,
+                stats
+            };
+        }
+        catch (error) {
+            logger_1.Logger.error('Error in manual exchange symbols update', {
+                error: error.message
+            });
+            return {
+                success: false,
+                message: `Exchange symbols update failed: ${error.message}`
             };
         }
     }

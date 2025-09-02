@@ -23,6 +23,9 @@ model User {
   nodes           UserNode[]
   roiCalculations ROICalculation[]
   daoMemberships  DAOMember[]
+  priceAlerts     PriceAlert[]
+  favoriteSymbols FavoriteSymbol[]
+  newsPreference  UserNewsPreference?
   
   @@map("users")
 }
@@ -449,4 +452,167 @@ model DAOVerificationReview {
   
   @@unique([verificationId, reviewerId])
   @@map("dao_verification_reviews")
+}
+
+model PriceAlert {
+  id           String   @id @default(cuid())
+  userId       String
+  symbol       String   // 交易对符号，如 "BTCUSDT"
+  targetPrice  Float    // 目标价格
+  condition    String   // 'above', 'below', 'crosses_above', 'crosses_below'
+  exchange     String   // 交易所：'binance', 'okx', 'gate'
+  message      String?  // 自定义消息
+  isActive     Boolean  @default(true)
+  isTriggered  Boolean  @default(false)
+  triggeredAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([symbol])
+  @@index([isActive, isTriggered])
+  @@map("price_alerts")
+}
+
+model FavoriteSymbol {
+  id          String   @id @default(cuid())
+  userId      String
+  symbol      String   // 交易对符号，如 "BTCUSDT"
+  baseAsset   String   // 基础资产，如 "BTC"
+  quoteAsset  String   // 计价资产，如 "USDT"
+  addedAt     DateTime @default(now())
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, symbol])
+  @@index([userId])
+  @@index([symbol])
+  @@map("favorite_symbols")
+}
+
+// 交易所币种信息表
+model ExchangeSymbol {
+  id                String   @id @default(cuid())
+  symbol            String   // 交易对符号，如 "BTCUSDT"
+  baseAsset         String   // 基础资产，如 "BTC"  
+  quoteAsset        String   // 计价资产，如 "USDT"
+  exchange          String   // 交易所：'binance', 'okx', 'gate'
+  status            String   // 交易状态：'TRADING', 'BREAK', 'HALT'
+  isSpotTradingAllowed Boolean @default(true)
+  isMarginTradingAllowed Boolean @default(false)
+  baseAssetPrecision Int     @default(8)
+  quotePrecision     Int     @default(8)
+  orderTypes         String  // JSON数组：['LIMIT', 'MARKET', 'STOP_LOSS']
+  timeInForce        String  // JSON数组：['GTC', 'IOC', 'FOK']
+  filters            String  // JSON对象：价格过滤器、数量过滤器等
+  permissions        String  // JSON数组：['SPOT', 'MARGIN']
+  defaultSelfTradePreventionMode String? // 自我交易防范模式
+  allowedSelfTradePreventionModes String? // JSON数组
+  volume24h          Float?   // 24小时交易量
+  priceChange24h     Float?   // 24小时价格变化
+  priceChangePercent24h Float? // 24小时价格变化百分比
+  lastPrice          Float?   // 最新价格
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  @@unique([symbol, exchange])
+  @@index([exchange])
+  @@index([baseAsset])
+  @@index([quoteAsset])
+  @@index([status])
+  @@index([updatedAt])
+  @@map("exchange_symbols")
+}
+
+// 快讯表
+model NewsFeed {
+  id           String   @id @default(cuid())
+  title        String   // 快讯标题
+  content      String   // 快讯内容
+  summary      String?  // 快讯摘要
+  source       String   // 数据源：'cex', 'onchain', 'social', 'defi'
+  sourceUrl    String?  // 原始链接
+  category     String   // 分类：'listing', 'delisting', 'trading', 'security', 'market', 'general'
+  importance   String   @default("medium") // 重要性：'high', 'medium', 'low'
+  exchange     String?  // 相关交易所（如果适用）
+  symbols      String   // JSON数组：相关交易对
+  tags         String   // JSON数组：标签
+  metadata     String?  // JSON对象：额外元数据
+  isHot        Boolean  @default(false) // 是否为热门快讯
+  isVerified   Boolean  @default(false) // 是否已验证
+  publishTime  DateTime // 发布时间
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@index([source])
+  @@index([category])
+  @@index([importance])
+  @@index([exchange])
+  @@index([isHot])
+  @@index([publishTime])
+  @@index([createdAt])
+  @@map("news_feeds")
+}
+
+// 链上数据快讯表
+model OnChainFeed {
+  id              String   @id @default(cuid())
+  transactionHash String   // 交易哈希
+  blockNumber     BigInt   // 区块号
+  blockchain      String   // 区块链：'ethereum', 'solana', 'bsc'
+  eventType       String   // 事件类型：'large_transfer', 'whale_activity', 'dex_swap', 'nft_trade'
+  title           String   // 标题
+  description     String   // 描述
+  amount          String?  // 金额（字符串以支持大数）
+  tokenSymbol     String?  // 代币符号
+  tokenAddress    String?  // 代币合约地址
+  fromAddress     String?  // 发送地址
+  toAddress       String?  // 接收地址
+  dexName         String?  // DEX名称（如适用）
+  nftCollection   String?  // NFT集合（如适用）
+  value           Float?   // 价值（USD）
+  gasUsed         String?  // 消耗的gas
+  gasPrice        String?  // gas价格
+  metadata        String?  // JSON对象：额外元数据
+  isAlert         Boolean  @default(false) // 是否为警报级别
+  timestamp       DateTime // 区块时间
+  createdAt       DateTime @default(now())
+  
+  @@unique([transactionHash, blockchain])
+  @@index([blockchain])
+  @@index([eventType])
+  @@index([tokenSymbol])
+  @@index([fromAddress])
+  @@index([toAddress])
+  @@index([value])
+  @@index([isAlert])
+  @@index([timestamp])
+  @@map("onchain_feeds")
+}
+
+// 用户快讯偏好表
+model UserNewsPreference {
+  id            String   @id @default(cuid())
+  userId        String
+  sources       String   // JSON数组：关注的数据源
+  categories    String   // JSON数组：关注的分类
+  symbols       String   // JSON数组：关注的交易对
+  exchanges     String   // JSON数组：关注的交易所
+  importance    String   @default("medium") // 最小重要性级别
+  enableAlerts  Boolean  @default(true) // 是否启用警报
+  alertEmail    Boolean  @default(false) // 是否发送邮件警报
+  alertPush     Boolean  @default(true) // 是否发送推送警报
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId])
+  @@index([userId])
+  @@map("user_news_preferences")
 }

@@ -2,6 +2,10 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '@/types';
 export declare class DAOProposalsController {
     /**
+     * Helper to attach user vote info to proposals
+     */
+    private static attachUserVoteInfo;
+    /**
      * Get proposals for a DAO
      */
     static getProposals(req: AuthenticatedRequest, res: Response): Promise<void>;
@@ -25,6 +29,10 @@ export declare class DAOProposalsController {
      * Execute proposal after voting passes
      */
     static executeProposal(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * Delete proposal
+     */
+    static deleteProposal(req: AuthenticatedRequest, res: Response): Promise<void>;
     /**
      * Cancel proposal
      */

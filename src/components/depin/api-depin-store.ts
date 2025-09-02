@@ -97,6 +97,9 @@ class ApiDePINStoreClass {
     
     // Set up WebSocket listeners for real-time updates
     this.setupWebSocketListeners();
+    
+    // Always load projects (no auth required)
+    this.loadProjects();
   }
 
   private async initializeAuth() {
@@ -105,9 +108,10 @@ class ApiDePINStoreClass {
       try {
         this.setLoading('auth', true);
         const response = await authApi.verify();
-        if (response.success) {
+        console.log('🔐 Auth verify response:', response);
+        if (response && (response.user || response.data?.user)) {
           this.state.isAuthenticated = true;
-          this.state.user = response.data.user;
+          this.state.user = response.user || response.data?.user || response;
           
           // Connect WebSocket
           depinWebSocket.connect();
@@ -117,12 +121,39 @@ class ApiDePINStoreClass {
         }
       } catch (error) {
         console.error('Authentication verification failed:', error);
-        clearAuthToken();
-        this.state.isAuthenticated = false;
-        this.state.user = null;
+        // 不清除token，让AuthContext处理
+        // clearAuthToken();
+        // this.state.isAuthenticated = false;
+        // this.state.user = null;
       } finally {
         this.setLoading('auth', false);
       }
+    } else {
+      // 没有token，等待用户连接钱包认证
+      console.log('🔌 DePIN Store: 无认证token，等待钱包连接');
+      this.setLoading('auth', false);
+    }
+  }
+
+  // 添加方法从AuthContext同步用户信息
+  syncAuthContext(isAuthenticated: boolean, user: any) {
+    if (isAuthenticated && user && !this.state.isAuthenticated) {
+      console.log('🔄 DePIN Store: 从AuthContext同步认证状态', user);
+      this.state.isAuthenticated = true;
+      this.state.user = user;
+      
+      // Connect WebSocket
+      depinWebSocket.connect();
+      
+      // Load initial data
+      this.loadInitialData();
+      this.notifyListeners();
+    } else if (!isAuthenticated && this.state.isAuthenticated) {
+      console.log('🔄 DePIN Store: 清除认证状态');
+      this.state.isAuthenticated = false;
+      this.state.user = null;
+      depinWebSocket.disconnect();
+      this.notifyListeners();
     }
   }
 
@@ -143,7 +174,8 @@ class ApiDePINStoreClass {
       
       // Step 1: Generate authentication message
       const messageResponse = await authApi.generateAuthMessage(connection.walletAddress);
-      if (!messageResponse.success) {
+      console.log('📝 Generate auth message response:', messageResponse);
+      if (!messageResponse || !messageResponse.message) {
         throw new Error('Failed to generate auth message');
       }
       
@@ -155,14 +187,15 @@ class ApiDePINStoreClass {
         connection.walletAddress,
         connection.publicKey,
         signature,
-        messageResponse.data.message
+        messageResponse.message || messageResponse.data?.message
       );
       
-      if (authResponse.success) {
+      console.log('🔑 Authentication response:', authResponse);
+      if (authResponse && (authResponse.token || authResponse.data?.token)) {
         // Store token and update state
-        setAuthToken(authResponse.data.token);
+        setAuthToken(authResponse.token || authResponse.data?.token);
         this.state.isAuthenticated = true;
-        this.state.user = authResponse.data.user;
+        this.state.user = authResponse.user || authResponse.data?.user;
         
         // Connect WebSocket
         depinWebSocket.connect();
@@ -201,15 +234,20 @@ class ApiDePINStoreClass {
   }
 
   private async loadInitialData() {
-    if (!this.state.isAuthenticated) return;
+    // Load projects always (no auth required)
+    const promises = [this.loadProjects()];
+    
+    // Load authenticated data only if authenticated
+    if (this.state.isAuthenticated) {
+      promises.push(
+        this.loadNodes(),
+        this.loadDashboardStats(),
+        this.loadEarnings()
+      );
+    }
     
     // Load data in parallel
-    await Promise.all([
-      this.loadProjects(),
-      this.loadNodes(),
-      this.loadDashboardStats(),
-      this.loadEarnings()
-    ]);
+    await Promise.all(promises);
   }
 
   private setupWebSocketListeners() {
@@ -248,14 +286,32 @@ class ApiDePINStoreClass {
       this.setLoading('projects', true);
       this.setError('projects', null);
       
+      console.log('🔍 Loading projects...');
       const response = await projectsApi.getProjects();
-      if (response.success) {
-        this.state.projects = response.data;
+      console.log('📦 Projects API response:', response);
+      
+      // 直接使用响应数据，因为 apiRequest 已经处理了 success 检查
+      if (Array.isArray(response)) {
+        this.state.projects = response;
+        console.log('✅ Projects loaded successfully:', response.length, 'projects');
+        this.notifyListeners();
+      } else if (response && typeof response === 'object' && 'data' in response) {
+        // 如果响应包含 data 字段，使用 data
+        this.state.projects = Array.isArray(response.data) ? response.data : [];
+        console.log('✅ Projects loaded from data field:', this.state.projects.length, 'projects');
+        this.notifyListeners();
+      } else {
+        console.log('⚠️ No projects data available, using empty array');
+        // 如果没有数据，设置空数组，这样页面至少能显示
+        this.state.projects = [];
         this.notifyListeners();
       }
     } catch (error) {
-      console.error('Failed to load projects:', error);
-      this.setError('projects', 'Failed to load projects');
+      console.error('❌ Failed to load projects:', error);
+      // 即使出错，也设置空数组，让页面能正常显示
+      this.state.projects = [];
+      this.setError('projects', error instanceof Error ? error.message : 'Failed to load projects');
+      this.notifyListeners();
     } finally {
       this.setLoading('projects', false);
     }
@@ -268,14 +324,30 @@ class ApiDePINStoreClass {
       this.setLoading('nodes', true);
       this.setError('nodes', null);
       
+      console.log('🔍 Loading nodes...');
       const response = await nodesApi.getNodes();
-      if (response.success) {
-        this.state.nodes = response.data;
+      console.log('🎯 Nodes API response:', response);
+      
+      // 直接使用响应数据，因为 apiRequest 已经处理了 success 检查
+      if (Array.isArray(response)) {
+        this.state.nodes = response;
+        console.log('✅ Nodes loaded successfully:', response.length, 'nodes');
+        this.notifyListeners();
+      } else if (response && typeof response === 'object' && 'data' in response) {
+        // 如果响应包含 data 字段，使用 data
+        this.state.nodes = Array.isArray(response.data) ? response.data : [];
+        console.log('✅ Nodes loaded from data field:', this.state.nodes.length, 'nodes');
+        this.notifyListeners();
+      } else {
+        console.log('⚠️ No nodes data available, using empty array');
+        this.state.nodes = [];
         this.notifyListeners();
       }
     } catch (error) {
-      console.error('Failed to load nodes:', error);
-      this.setError('nodes', 'Failed to load nodes');
+      console.error('❌ Failed to load nodes:', error);
+      this.state.nodes = [];
+      this.setError('nodes', error instanceof Error ? error.message : 'Failed to load nodes');
+      this.notifyListeners();
     } finally {
       this.setLoading('nodes', false);
     }
@@ -288,14 +360,25 @@ class ApiDePINStoreClass {
       this.setLoading('dashboard', true);
       this.setError('dashboard', null);
       
+      console.log('📊 Loading dashboard stats...');
       const response = await dashboardApi.getStats();
-      if (response.success) {
-        this.state.dashboardStats = response.data;
+      console.log('📈 Dashboard stats API response:', response);
+      
+      // 直接使用响应数据，因为 apiRequest 已经处理了 success 检查
+      if (response && typeof response === 'object') {
+        this.state.dashboardStats = response;
+        console.log('✅ Dashboard stats loaded successfully');
+        this.notifyListeners();
+      } else {
+        console.log('⚠️ No dashboard stats data available');
+        this.state.dashboardStats = null;
         this.notifyListeners();
       }
     } catch (error) {
-      console.error('Failed to load dashboard stats:', error);
-      this.setError('dashboard', 'Failed to load dashboard stats');
+      console.error('❌ Failed to load dashboard stats:', error);
+      this.state.dashboardStats = null;
+      this.setError('dashboard', error instanceof Error ? error.message : 'Failed to load dashboard stats');
+      this.notifyListeners();
     } finally {
       this.setLoading('dashboard', false);
     }
@@ -308,14 +391,34 @@ class ApiDePINStoreClass {
       this.setLoading('earnings', true);
       this.setError('earnings', null);
       
+      console.log('💰 Loading earnings data...');
       const response = await dashboardApi.getEarnings(period);
-      if (response.success) {
-        this.state.earnings = response.data;
+      console.log('💵 Earnings API response:', response);
+      
+      // 直接使用响应数据，因为 apiRequest 已经处理了 success 检查
+      if (response && typeof response === 'object') {
+        this.state.earnings = response;
+        console.log('✅ Earnings loaded successfully');
+        this.notifyListeners();
+      } else {
+        console.log('⚠️ No earnings data available');
+        this.state.earnings = null;
         this.notifyListeners();
       }
     } catch (error) {
-      console.error('Failed to load earnings:', error);
-      this.setError('earnings', 'Failed to load earnings');
+      console.error('❌ Failed to load earnings:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load earnings';
+      
+      // 对于超时错误，保持现有数据但显示友好错误信息
+      if (errorMessage.includes('超时')) {
+        console.log('⏰ Earnings request timeout, keeping existing data');
+        this.setError('earnings', '收益数据加载超时，正在重试...');
+        // 不清除现有的 earnings 数据
+      } else {
+        this.state.earnings = null;
+        this.setError('earnings', errorMessage);
+      }
+      this.notifyListeners();
     } finally {
       this.setLoading('earnings', false);
     }
@@ -340,22 +443,26 @@ class ApiDePINStoreClass {
     }
 
     try {
+      console.log('🚀 Creating nodes:', data);
       const response = await nodesApi.createNodes(data);
-      if (response.success) {
+      console.log('✨ Create nodes API response:', response);
+      
+      // 直接使用响应数据，因为 apiRequest 已经处理了 success 检查
+      if (response && typeof response === 'object' && response.summary) {
         // Refresh nodes list
         await this.loadNodes();
         
-        const summary = response.data.summary;
+        const summary = response.summary;
         return {
           success: true,
           message: `Successfully created ${summary.created} of ${summary.total} nodes`,
-          data: response.data
+          data: response
         };
       } else {
-        return { success: false, message: 'Failed to create nodes' };
+        return { success: false, message: 'Unexpected response format' };
       }
     } catch (error) {
-      console.error('Failed to create nodes:', error);
+      console.error('❌ Failed to create nodes:', error);
       return { 
         success: false, 
         message: error instanceof Error ? error.message : 'Failed to create nodes' 
@@ -368,13 +475,12 @@ class ApiDePINStoreClass {
 
     try {
       const response = await nodesApi.deleteNode(nodeId);
-      if (response.success) {
-        // Remove from local state
-        this.state.nodes = this.state.nodes.filter(node => node.id !== nodeId);
-        this.notifyListeners();
-        return true;
-      }
-      return false;
+      console.log('🗑️ Delete node response:', response);
+      // 对于删除操作，通常返回 null 或空对象表示成功
+      // Remove from local state
+      this.state.nodes = this.state.nodes.filter(node => node.id !== nodeId);
+      this.notifyListeners();
+      return true;
     } catch (error) {
       console.error('Failed to delete node:', error);
       return false;
@@ -386,13 +492,12 @@ class ApiDePINStoreClass {
 
     try {
       const response = await projectsApi.deleteProject(projectId);
-      if (response.success) {
-        // Remove from local state
-        this.state.projects = this.state.projects.filter(project => project.id !== projectId);
-        this.notifyListeners();
-        return true;
-      }
-      return false;
+      console.log('🗑️ Delete project response:', response);
+      // 对于删除操作，通常返回 null 或空对象表示成功
+      // Remove from local state
+      this.state.projects = this.state.projects.filter(project => project.id !== projectId);
+      this.notifyListeners();
+      return true;
     } catch (error) {
       console.error('Failed to delete project:', error);
       return false;
@@ -451,13 +556,14 @@ class ApiDePINStoreClass {
 
     try {
       const response = await dashboardApi.triggerCapacityUpdate();
-      if (response.success) {
+      console.log('⚡ Capacity update response:', response);
+      if (response && typeof response === 'object') {
         // Refresh nodes to get updated capacities
         setTimeout(() => this.loadNodes(), 2000);
         
         return {
           success: true,
-          message: `Capacity update completed: ${response.data.totalUpdated} updated, ${response.data.totalFailed} failed`
+          message: `Capacity update completed: ${response.totalUpdated || 0} updated, ${response.totalFailed || 0} failed`
         };
       }
       return { success: false, message: 'Capacity update failed' };

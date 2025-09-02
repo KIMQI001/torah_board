@@ -45,7 +45,7 @@ const daoSchemas = {
         attachments: joi_1.default.array().items(joi_1.default.string()).optional()
     }),
     vote: joi_1.default.object({
-        voteType: joi_1.default.string().valid('FOR', 'AGAINST', 'ABSTAIN').required(),
+        voteType: joi_1.default.string().valid('FOR', 'AGAINST', 'ABSTAIN', 'for', 'against', 'abstain').required(),
         reason: joi_1.default.string().max(500).allow('').optional()
     }),
     createProject: joi_1.default.object({
@@ -188,6 +188,7 @@ router.post('/proposals/:id/vote', auth_1.authenticate, (0, validation_1.validat
 router.post('/proposals/:id/activate', auth_1.authenticate, dao_proposals_controller_1.DAOProposalsController.activateProposal);
 router.post('/proposals/:id/execute', auth_1.authenticate, dao_proposals_controller_1.DAOProposalsController.executeProposal);
 router.post('/proposals/:id/cancel', auth_1.authenticate, dao_proposals_controller_1.DAOProposalsController.cancelProposal);
+router.delete('/proposals/:id', auth_1.authenticate, dao_proposals_controller_1.DAOProposalsController.deleteProposal);
 // Project Routes
 router.get('/daos/:daoId/projects', auth_1.authenticate, dao_projects_controller_1.DAOProjectsController.getProjects);
 router.get('/projects/:id', auth_1.authenticate, dao_projects_controller_1.DAOProjectsController.getProject);

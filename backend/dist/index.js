@@ -21,6 +21,7 @@ const nodes_routes_1 = require("@/routes/nodes.routes");
 const roi_routes_1 = require("@/routes/roi.routes");
 const dashboard_routes_1 = require("@/routes/dashboard.routes");
 const dao_routes_1 = __importDefault(require("@/routes/dao.routes"));
+const spot_routes_1 = require("@/routes/spot.routes");
 // Import services
 const scheduler_service_1 = require("@/services/scheduler.service");
 const websocket_service_1 = require("@/services/websocket.service");
@@ -104,6 +105,7 @@ app.use(`/api/${API_VERSION}/projects`, projects_routes_1.projectsRoutes);
 app.use(`/api/${API_VERSION}/nodes`, nodes_routes_1.nodesRoutes);
 app.use(`/api/${API_VERSION}/roi`, roi_routes_1.roiRoutes);
 app.use(`/api/${API_VERSION}/dashboard`, dashboard_routes_1.dashboardRoutes);
+app.use(`/api/${API_VERSION}/spot`, spot_routes_1.spotRoutes);
 app.use(`/api/${API_VERSION}`, dao_routes_1.default);
 // 404 handler
 app.use('*', (req, res) => {

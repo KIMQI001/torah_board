@@ -57,6 +57,16 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    
+    // Validate form data
+    if (!formData.title.trim()) {
+      console.error('Title is required');
+      return;
+    }
+    if (formData.description.length < 20) {
+      console.error('Description must be at least 20 characters long');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -167,17 +177,25 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
               </div>
 
               <div>
-                <Label htmlFor="description">Description *</Label>
+                <Label htmlFor="description">
+                  Description * <span className="text-sm text-gray-500">({formData.description.length}/20 minimum)</span>
+                </Label>
                 <Textarea
                   id="description"
                   name="description"
                   value={formData.description}
                   onChange={handleInputChange}
-                  placeholder="Describe the project objectives and deliverables"
+                  placeholder="Describe the project objectives and deliverables (minimum 20 characters)"
                   rows={3}
                   required
                   disabled={isSubmitting}
+                  className={formData.description.length > 0 && formData.description.length < 20 ? 'border-red-300' : ''}
                 />
+                {formData.description.length > 0 && formData.description.length < 20 && (
+                  <p className="text-sm text-red-600 mt-1">
+                    Description must be at least 20 characters long
+                  </p>
+                )}
               </div>
             </div>
 
@@ -187,7 +205,7 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="totalBudget">Total Budget (SOL)</Label>
+                  <Label htmlFor="totalBudget">Total Budget ($)</Label>
                   <Input
                     id="totalBudget"
                     name="totalBudget"
@@ -315,7 +333,7 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || !formData.title || !formData.description || !formData.startDate || !formData.expectedEndDate}
+                disabled={isSubmitting || !formData.title || formData.description.length < 20 || !formData.startDate || !formData.expectedEndDate}
               >
                 {isSubmitting ? 'Creating...' : 'Create Project'}
               </Button>

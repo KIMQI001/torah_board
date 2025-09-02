@@ -125,6 +125,23 @@ class AuthController {
                 response_1.ResponseUtil.unauthorized(res);
                 return;
             }
+            // 开发模式：如果是模拟用户，直接返回模拟数据，不查询数据库
+            if (process.env.NODE_ENV === 'development' && req.user.id === 'cmf0l7h1p0000vldfi9wmxwex') {
+                logger_1.Logger.debug('🔧 Development mode: Returning mock user data for verify');
+                const mockUser = {
+                    id: req.user.id,
+                    walletAddress: req.user.walletAddress,
+                    publicKey: req.user.publicKey,
+                    balance: 1000, // Mock balance
+                    createdAt: new Date().toISOString(),
+                    lastLogin: new Date().toISOString(),
+                    settings: null
+                };
+                response_1.ResponseUtil.success(res, {
+                    user: mockUser
+                }, 'Token is valid (development mode)');
+                return;
+            }
             const user = await database_1.prisma.user.findUnique({
                 where: { id: req.user.id },
                 select: {
@@ -137,6 +154,23 @@ class AuthController {
                 }
             });
             if (!user) {
+                // 开发模式：即使数据库中没有用户，也返回模拟数据
+                if (process.env.NODE_ENV === 'development') {
+                    logger_1.Logger.debug('🔧 Development mode: User not found in DB, returning mock data');
+                    const mockUser = {
+                        id: req.user.id,
+                        walletAddress: req.user.walletAddress,
+                        publicKey: req.user.publicKey,
+                        balance: 1000,
+                        createdAt: new Date().toISOString(),
+                        lastLogin: new Date().toISOString(),
+                        settings: null
+                    };
+                    response_1.ResponseUtil.success(res, {
+                        user: mockUser
+                    }, 'Token is valid (development mode fallback)');
+                    return;
+                }
                 response_1.ResponseUtil.unauthorized(res, 'User not found');
                 return;
             }
@@ -151,6 +185,23 @@ class AuthController {
         }
         catch (error) {
             logger_1.Logger.error('Token verification error', { error: error.message });
+            // 开发模式：即使出错也返回模拟数据
+            if (process.env.NODE_ENV === 'development' && req.user) {
+                logger_1.Logger.debug('🔧 Development mode: Error occurred, returning mock data');
+                const mockUser = {
+                    id: req.user.id,
+                    walletAddress: req.user.walletAddress,
+                    publicKey: req.user.publicKey,
+                    balance: 1000,
+                    createdAt: new Date().toISOString(),
+                    lastLogin: new Date().toISOString(),
+                    settings: null
+                };
+                response_1.ResponseUtil.success(res, {
+                    user: mockUser
+                }, 'Token is valid (development mode error fallback)');
+                return;
+            }
             response_1.ResponseUtil.serverError(res);
         }
     }

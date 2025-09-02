@@ -136,7 +136,7 @@ export function CreateTaskModal({
       onTaskCreated?.();
       
       // 显示成功消息并关闭
-      alert(`✅ 任务创建成功！\n\n任务标题: ${task.title}\n成本估算: ${task.costEstimate} SOL\n代币奖励: ${task.tokenReward} ${daoToken}\n优先级: ${task.priority}`);
+      alert(`✅ 任务创建成功！\n\n任务标题: ${task.title}\n成本估算: $${task.costEstimate}\n代币奖励: ${task.tokenReward} ${daoToken}\n优先级: ${task.priority}`);
       
       onClose();
     } catch (error) {
@@ -367,7 +367,7 @@ export function CreateTaskModal({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 <DollarSign className="h-4 w-4 inline mr-1" />
-                成本估算 (SOL)
+                成本估算 ($)
               </label>
               <input
                 type="number"

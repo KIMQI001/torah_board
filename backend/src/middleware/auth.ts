@@ -132,3 +132,6 @@ export const optionalAuth = async (
     next();
   }
 };
+
+// 导出别名
+export const authMiddleware = authenticate;
