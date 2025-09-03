@@ -23,7 +23,7 @@ import { PriceMatrix } from "@/components/spot/PriceMatrixReal";
 import { AnnouncementFeed } from "@/components/spot/AnnouncementFeed";
 import { PriceAlertManager } from "@/components/spot/PriceAlertManager";
 import { NewsCard } from "@/components/spot/NewsCard";
-import { usePriceAlerts } from "@/hooks/use-spot-data";
+import { usePriceAlerts, useAnnouncements } from "@/hooks/use-spot-data";
 import { useRealMarketStats } from "@/hooks/use-real-market-data";
 
 export default function SpotPage() {
@@ -32,6 +32,9 @@ export default function SpotPage() {
   
   const { alerts } = usePriceAlerts();
   const { overview, loading: statsLoading } = useRealMarketStats();
+  
+  // Preload announcements data at the top level so it's available when user switches to the tab
+  const { announcements } = useAnnouncements();
   
   const activeAlerts = alerts.filter(alert => alert.isActive && !alert.isTriggered);
   const triggeredAlerts = alerts.filter(alert => alert.isTriggered);

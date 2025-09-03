@@ -4,7 +4,12 @@ import { authMiddleware } from '@/middleware/auth';
 
 const router = Router();
 
-// 应用认证中间件到所有现货交易路由
+// CEX公告路由 - 无需认证
+router.get('/announcements', SpotController.getAnnouncements);
+router.get('/announcements/high-priority', SpotController.getHighPriorityAnnouncements);
+router.get('/announcements/token/:symbol', SpotController.getTokenAnnouncements);
+
+// 应用认证中间件到其他现货交易路由
 router.use(authMiddleware);
 
 // 市场数据路由
@@ -18,11 +23,6 @@ router.get('/alerts', SpotController.getPriceAlerts);
 router.post('/alerts', SpotController.createPriceAlert);
 router.put('/alerts/:id', SpotController.updatePriceAlert);
 router.delete('/alerts/:id', SpotController.deletePriceAlert);
-
-// CEX公告路由
-router.get('/announcements', SpotController.getAnnouncements);
-router.get('/announcements/high-priority', SpotController.getHighPriorityAnnouncements);
-router.get('/announcements/token/:symbol', SpotController.getTokenAnnouncements);
 
 // 异常检测路由
 router.get('/anomalies', SpotController.getPriceAnomalies);

@@ -194,7 +194,7 @@ export const useAnnouncements = () => {
       setLoading(true);
       setError(null);
       const data = await daoApi.getAnnouncements(params);
-      setAnnouncements(data);
+      setAnnouncements(data || []);
       setLastUpdate(Date.now());
     } catch (err) {
       console.error('Failed to fetch announcements:', err);

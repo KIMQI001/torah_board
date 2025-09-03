@@ -1560,15 +1560,63 @@ export const daoApi = {
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     
     const query = searchParams.toString();
-    return apiRequest<any[]>(`/spot/announcements${query ? '?' + query : ''}`);
+    // 公告API不需要认证，直接fetch
+    const url = `${API_BASE_URL}/spot/announcements${query ? '?' + query : ''}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Announcement API error:', errorText);
+      throw new Error(`Failed to fetch announcements: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.success ? data.data : [];
   },
 
   async getHighPriorityAnnouncements() {
-    return apiRequest<any[]>('/spot/announcements/high-priority');
+    // 公告API不需要认证，直接fetch
+    const url = `${API_BASE_URL}/spot/announcements/high-priority`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch high priority announcements: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.success ? data.data : [];
   },
 
   async getTokenAnnouncements(symbol: string) {
-    return apiRequest<any[]>(`/spot/announcements/token/${symbol}`);
+    // 公告API不需要认证，直接fetch
+    const url = `${API_BASE_URL}/spot/announcements/token/${symbol}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch token announcements: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.success ? data.data : [];
   },
 
   async getPriceAnomalies(symbols?: string[]) {
