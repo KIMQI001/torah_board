@@ -64,7 +64,7 @@ const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-lg w-full max-h-[85vh] overflow-y-auto">
+      <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto">
         {children}
       </div>
     </div>
@@ -112,15 +112,19 @@ const DialogDescription: React.FC<DialogDescriptionProps> = ({ className, childr
 }
 
 const DialogTrigger: React.FC<DialogTriggerProps> = ({ className, children, onClick, asChild = false }) => {
+  const handleClick = () => {
+    onClick?.();
+  }
+  
   if (asChild) {
     return React.cloneElement(children as React.ReactElement, {
-      onClick,
+      onClick: handleClick,
       className: `${(children as React.ReactElement).props.className || ''} ${className || ''}`.trim()
     })
   }
   
   return (
-    <button onClick={onClick} className={className}>
+    <button onClick={handleClick} className={className}>
       {children}
     </button>
   )
