@@ -4,7 +4,7 @@ import { Logger } from '@/utils/logger';
 import { JwtUtil } from '@/utils/jwt';
 
 export interface WebSocketMessage {
-  type: 'node_update' | 'capacity_update' | 'performance_update' | 'earnings_update' | 'system_status';
+  type: 'node_update' | 'capacity_update' | 'performance_update' | 'earnings_update' | 'system_status' | 'cex_announcements' | 'announcement_update';
   data: any;
   timestamp: string;
   userId?: string;
@@ -169,6 +169,15 @@ export class WebSocketService {
           });
           break;
 
+        case 'subscribe_announcements':
+          // Client wants to subscribe to CEX announcements
+          this.sendToClient(ws, {
+            type: 'system_status',
+            data: { message: 'Subscribed to CEX announcements' },
+            timestamp: new Date().toISOString()
+          });
+          break;
+
         default:
           Logger.warn('Unknown WebSocket message type', {
             messageType: message.type,
@@ -322,6 +331,38 @@ export class WebSocketService {
     this.broadcastToUser(userId, {
       type: 'earnings_update',
       data: earnings,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Broadcast new CEX announcements to all clients
+   */
+  static broadcastCEXAnnouncements(announcements: any[]): void {
+    if (announcements.length === 0) return;
+
+    this.broadcastToAll({
+      type: 'cex_announcements',
+      data: {
+        announcements,
+        count: announcements.length,
+        timestamp: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Broadcast announcement update to all clients
+   */
+  static broadcastAnnouncementUpdate(message: string, data?: any): void {
+    this.broadcastToAll({
+      type: 'announcement_update',
+      data: {
+        message,
+        ...data,
+        timestamp: new Date().toISOString()
+      },
       timestamp: new Date().toISOString()
     });
   }

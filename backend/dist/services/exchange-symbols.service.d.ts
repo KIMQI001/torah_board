@@ -43,6 +43,10 @@ export declare class ExchangeSymbolsService {
      */
     static saveSymbolsToDatabase(symbols: ExchangeSymbolInfo[]): Promise<void>;
     /**
+     * 获取热门币种（当搜索为空时使用）
+     */
+    static getPopularSymbols(limit?: number, exchanges?: string[]): Promise<any[]>;
+    /**
      * 从数据库搜索币种信息
      */
     static searchSymbols(query: string, limit?: number, exchanges?: string[]): Promise<any[]>;

@@ -21,6 +21,30 @@ export declare class CEXAnnouncementsService {
      */
     static getOKXAnnouncements(): Promise<ExchangeAnnouncement[]>;
     /**
+     * 获取Coinbase Pro公告
+     */
+    static getCoinbaseAnnouncements(): Promise<ExchangeAnnouncement[]>;
+    /**
+     * 获取Kraken公告
+     */
+    static getKrakenAnnouncements(): Promise<ExchangeAnnouncement[]>;
+    /**
+     * 获取Bybit公告
+     */
+    static getBybitAnnouncements(): Promise<ExchangeAnnouncement[]>;
+    /**
+     * 获取Huobi公告
+     */
+    static getHuobiAnnouncements(): Promise<ExchangeAnnouncement[]>;
+    /**
+     * 获取KuCoin公告
+     */
+    static getKuCoinAnnouncements(): Promise<ExchangeAnnouncement[]>;
+    /**
+     * 获取Bitget公告
+     */
+    static getBitgetAnnouncements(): Promise<ExchangeAnnouncement[]>;
+    /**
      * 获取Gate.io公告
      */
     static getGateAnnouncements(): Promise<ExchangeAnnouncement[]>;
@@ -56,5 +80,9 @@ export declare class CEXAnnouncementsService {
      * 清除缓存
      */
     static clearCache(): void;
+    /**
+     * Binance模拟数据
+     */
+    private static getMockBinanceAnnouncements;
 }
 //# sourceMappingURL=cex-announcements.service.d.ts.map

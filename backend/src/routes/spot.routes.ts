@@ -48,6 +48,12 @@ router.get('/favorites', SpotController.getFavoriteSymbols);
 router.post('/favorites', SpotController.addFavoriteSymbol);
 router.delete('/favorites/:symbol', SpotController.removeFavoriteSymbol);
 
+// 爬虫测试路由（用于测试新的真实数据爬取功能）
+router.get('/scraper/test', SpotController.testCexScraper);
+router.get('/scraper/binance', SpotController.testBinanceScraper);
+router.get('/scraper/okx', SpotController.testOkxScraper);
+router.get('/scraper/web', SpotController.testWebScraper);
+
 // 交易所币种数据库路由
 router.get('/symbols/search', SpotController.searchExchangeSymbols);
 router.get('/symbols/all', SpotController.getAllExchangeSymbols);

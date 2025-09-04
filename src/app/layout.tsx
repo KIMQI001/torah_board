@@ -5,8 +5,8 @@ import { LanguageProvider } from "@/components/providers/language-provider";
 import { ToolsProvider } from "@/components/tools/tools-store";
 import { WalletProvider } from "@/components/wallet/WalletProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
+import { LayoutProvider } from "@/contexts/LayoutContext";
+import { ResponsiveLayout } from "@/components/layout/ResponsiveLayout";
 import { FloatingNewsWrapper } from "@/components/layout/FloatingNewsWrapper";
 import "./globals.css";
 
@@ -32,6 +32,27 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              // 防止钱包扩展冲突错误
+              (function() {
+                const originalError = console.error;
+                console.error = function(...args) {
+                  const message = args[0];
+                  if (typeof message === 'string' && 
+                      (message.includes('Cannot redefine property: ethereum') ||
+                       message.includes('chrome-extension'))) {
+                    return;
+                  }
+                  originalError.apply(console, args);
+                };
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
@@ -46,20 +67,14 @@ export default function RootLayout({
             <ToolsProvider>
               <WalletProvider>
                 <AuthProvider>
-                  <div className="flex h-screen">
-                    <div className="w-64 border-r bg-card">
-                      <Sidebar />
-                    </div>
-                    <div className="flex-1 flex flex-col overflow-hidden">
-                      <Header />
-                      <main className="flex-1 overflow-auto p-6">
-                        {children}
-                      </main>
-                    </div>
-                  </div>
-                  
-                  {/* 浮动新闻组件 */}
-                  <FloatingNewsWrapper />
+                  <LayoutProvider>
+                    <ResponsiveLayout>
+                      {children}
+                    </ResponsiveLayout>
+                    
+                    {/* 浮动新闻组件 */}
+                    <FloatingNewsWrapper />
+                  </LayoutProvider>
                 </AuthProvider>
               </WalletProvider>
             </ToolsProvider>

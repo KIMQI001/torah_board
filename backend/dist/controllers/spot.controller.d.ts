@@ -125,5 +125,33 @@ export declare class SpotController {
      * 获取交易所币种统计信息
      */
     static getExchangeSymbolsStats(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 获取聚合快讯
+     */
+    static getNewsFeeds(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 获取热门快讯
+     */
+    static getHotNewsFeeds(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 获取链上数据快讯
+     */
+    static getOnChainFeeds(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 获取巨鲸活动
+     */
+    static getWhaleActivity(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 获取特定币种相关快讯
+     */
+    static getSymbolNewsFeeds(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 手动触发快讯聚合更新
+     */
+    static triggerFeedsUpdate(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 获取快讯统计信息
+     */
+    static getFeedsStats(req: AuthenticatedRequest, res: Response): Promise<void>;
 }
 //# sourceMappingURL=spot.controller.d.ts.map

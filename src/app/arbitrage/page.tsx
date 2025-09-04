@@ -2,232 +2,152 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeftRight, TrendingUp, AlertTriangle, PlayCircle, PauseCircle } from "lucide-react";
+import { 
+  ArrowLeftRight, 
+  TrendingUp, 
+  AlertTriangle, 
+  PlayCircle, 
+  PauseCircle,
+  Building2,
+  Network,
+  Zap,
+  Globe,
+  ExternalLink,
+  Github
+} from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 
 export default function ArbitragePage() {
   const { t } = useLanguage();
-  
-  const opportunities = [
-    {
-      tokenPair: "SOL/USDC",
-      dexA: "Raydium",
-      dexB: "Jupiter",
-      priceA: "$98.45",
-      priceB: "$99.12",
-      profit: "$0.67",
-      profitPercent: "0.68%",
-      volume: "$1.2M",
-      risk: "low",
-    },
-    {
-      tokenPair: "BONK/SOL",
-      dexA: "Orca",
-      dexB: "Raydium",
-      priceA: "0.000021",
-      priceB: "0.000022",
-      profit: "$0.04",
-      profitPercent: "4.76%",
-      volume: "$890K",
-      risk: "medium",
-    },
-    {
-      tokenPair: "JUP/USDC",
-      dexA: "Phoenix",
-      dexB: "Meteora",
-      priceA: "$0.89",
-      priceB: "$0.91",
-      profit: "$0.02",
-      profitPercent: "2.25%",
-      volume: "$650K",
-      risk: "high",
-    },
-  ];
 
-  const recentTrades = [
-    {
-      pair: "SOL/USDC",
-      profit: "+$12.45",
-      timestamp: "2 mins ago",
-      status: "completed",
-    },
-    {
-      pair: "BONK/SOL",
-      profit: "+$8.90",
-      timestamp: "5 mins ago",
-      status: "completed",
-    },
-    {
-      pair: "JUP/USDC",
-      profit: "-$2.10",
-      timestamp: "12 mins ago",
-      status: "failed",
-    },
-  ];
+  const openPriceArbitrage = () => {
+    window.open('https://github.com/', '_blank');
+  };
 
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case "low":
-        return "text-green-500";
-      case "medium":
-        return "text-yellow-500";
-      case "high":
-        return "text-red-500";
-      default:
-        return "text-muted-foreground";
-    }
+  const openFundingRateArbitrage = () => {
+    window.open('https://github.com/', '_blank');
+  };
+
+  const openJupArbitrage = () => {
+    window.open('https://github.com/', '_blank');
+  };
+
+  const openOnchainArbitrage = () => {
+    window.open('https://github.com/', '_blank');
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">{t('arbitrage.title')}</h1>
+          <h1 className="text-3xl font-bold">套利概览</h1>
           <p className="text-muted-foreground">
-            {t('arbitrage.subtitle')}
+            中心化交易所和去中心化交易所套利机会监控
           </p>
         </div>
-        <div className="flex space-x-2">
-          <Button variant="outline">
-            <PauseCircle className="h-4 w-4 mr-2" />
-            Pause {t('arbitrage.scanner')}
-          </Button>
-          <Button>
-            <PlayCircle className="h-4 w-4 mr-2" />
-            Auto Trade
-          </Button>
-        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t('arbitrage.activeOpportunities')}</CardTitle>
-            <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{opportunities.length}</div>
-            <p className="text-xs text-muted-foreground">Updated 30s ago</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total {t('arbitrage.profit')} (24h)</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-500">+$147.32</div>
-            <p className="text-xs text-muted-foreground">15 successful trades</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">87.5%</div>
-            <p className="text-xs text-muted-foreground">Last 30 trades</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Best Opportunity</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-500">4.76%</div>
-            <p className="text-xs text-muted-foreground">BONK/SOL spread</p>
-          </CardContent>
-        </Card>
-      </div>
-
+      {/* 主要类别 */}
       <div className="grid gap-6 md:grid-cols-2">
+        {/* CEX 套利 */}
         <Card>
           <CardHeader>
-            <CardTitle>Live {t('arbitrage.opportunities')}</CardTitle>
+            <CardTitle className="flex items-center space-x-2">
+              <Building2 className="h-5 w-5 text-blue-500" />
+              <span>CEX 套利</span>
+            </CardTitle>
             <CardDescription>
-              Real-time price differences across DEXs
+              中心化交易所之间的价格差异套利
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {opportunities.map((opp, idx) => (
-                <div key={idx} className="border rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h3 className="font-semibold">{opp.tokenPair}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {opp.dexA} → {opp.dexB}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-green-500">{opp.profitPercent}</p>
-                      <p className="text-sm text-muted-foreground">{opp.profit}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">{opp.dexA}</p>
-                      <p className="font-medium">{opp.priceA}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">{opp.dexB}</p>
-                      <p className="font-medium">{opp.priceB}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-muted-foreground">{t('arbitrage.risk')}:</span>
-                      <span className={`text-sm font-medium ${getRiskColor(opp.risk)}`}>
-                        {opp.risk.toUpperCase()}
-                      </span>
-                    </div>
-                    <Button size="sm">
-                      <ArrowLeftRight className="h-3 w-3 mr-1" />
-                      {t('arbitrage.execute')}
-                    </Button>
-                  </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                  <h4 className="font-semibold text-blue-700 dark:text-blue-300">活跃机会</h4>
+                  <p className="text-2xl font-bold text-blue-600">8</p>
                 </div>
-              ))}
+                <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg">
+                  <h4 className="font-semibold text-green-700 dark:text-green-300">今日收益</h4>
+                  <p className="text-2xl font-bold text-green-600">+$234</p>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <h4 className="font-semibold">支持交易所</h4>
+                <div className="text-sm text-muted-foreground">
+                  <p>• Binance ↔ OKX</p>
+                  <p>• Coinbase ↔ Kraken</p>
+                  <p>• Bybit ↔ Gate.io</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
+                  onClick={openPriceArbitrage}
+                >
+                  <Github className="h-3 w-3 mr-1" />
+                  价格套利
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
+                  onClick={openFundingRateArbitrage}
+                >
+                  <Github className="h-3 w-3 mr-1" />
+                  资金费率套利
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* DEX 套利 */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Trades</CardTitle>
+            <CardTitle className="flex items-center space-x-2">
+              <Network className="h-5 w-5 text-purple-500" />
+              <span>DEX 套利</span>
+            </CardTitle>
             <CardDescription>
-              Your latest arbitrage transactions
+              去中心化交易所套利策略
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentTrades.map((trade, idx) => (
-                <div key={idx} className="flex justify-between items-center p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium">{trade.pair}</p>
-                    <p className="text-sm text-muted-foreground">{trade.timestamp}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`font-medium ${
-                      trade.status === "completed" ? "text-green-500" : "text-red-500"
-                    }`}>
-                      {trade.profit}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{trade.status}</p>
-                  </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-purple-50 dark:bg-purple-950 rounded-lg">
+                  <h4 className="font-semibold text-purple-700 dark:text-purple-300">活跃机会</h4>
+                  <p className="text-2xl font-bold text-purple-600">12</p>
                 </div>
-              ))}
+                <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg">
+                  <h4 className="font-semibold text-green-700 dark:text-green-300">今日收益</h4>
+                  <p className="text-2xl font-bold text-green-600">+$156</p>
+                </div>
+              </div>
               
-              <div className="text-center">
-                <Button variant="outline" size="sm">
-                  View All Trades
+              <div className="grid grid-cols-2 gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
+                  onClick={openJupArbitrage}
+                >
+                  <Zap className="h-3 w-3 mr-1" />
+                  JUP 套利
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
+                  onClick={openOnchainArbitrage}
+                >
+                  <Globe className="h-3 w-3 mr-1" />
+                  On-chain 套利
                 </Button>
               </div>
             </div>
@@ -235,36 +155,85 @@ export default function ArbitragePage() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Strategy {t('arbitrage.settings')}</CardTitle>
-          <CardDescription>
-            Configure your arbitrage trading parameters
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Min Profit %</label>
-              <div className="p-3 border rounded text-center">
-                <span className="text-lg font-bold">0.5%</span>
+      {/* 详细功能介绍 */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">JUP 套利</CardTitle>
+            <CardDescription>
+              基于 Jupiter 聚合器的跨 DEX 套利
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="p-3 bg-orange-50 dark:bg-orange-950 rounded-lg">
+                <h4 className="font-semibold text-orange-700 dark:text-orange-300 mb-2">特点</h4>
+                <ul className="text-sm space-y-1">
+                  <li>• 自动路径优化</li>
+                  <li>• 低滑点交易</li>
+                  <li>• 支持多种代币</li>
+                  <li>• MEV 保护机制</li>
+                </ul>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                利用 Jupiter 的智能路由找到最优套利路径
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">On-chain 套利</CardTitle>
+            <CardDescription>
+              链上 DEX 之间的直接套利
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg">
+                <h4 className="font-semibold text-green-700 dark:text-green-300 mb-2">支持 DEX</h4>
+                <ul className="text-sm space-y-1">
+                  <li>• Raydium ↔ Orca</li>
+                  <li>• Serum ↔ Meteora</li>
+                  <li>• Phoenix ↔ Lifinity</li>
+                  <li>• Aldrin ↔ Saber</li>
+                </ul>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                监控链上流动性池的价格差异
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">策略配置</CardTitle>
+            <CardDescription>
+              自定义套利参数和风险控制
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3">
+                <div className="p-2 border rounded text-center">
+                  <p className="text-xs text-muted-foreground">最小利润率</p>
+                  <p className="font-bold">0.5%</p>
+                </div>
+                <div className="p-2 border rounded text-center">
+                  <p className="text-xs text-muted-foreground">最大交易额</p>
+                  <p className="font-bold">$1,000</p>
+                </div>
+                <div className="p-2 border rounded text-center">
+                  <p className="text-xs text-muted-foreground">风险等级</p>
+                  <p className="font-bold text-yellow-500">中等</p>
+                </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Max Trade Amount</label>
-              <div className="p-3 border rounded text-center">
-                <span className="text-lg font-bold">$1,000</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Risk Level</label>
-              <div className="p-3 border rounded text-center">
-                <span className="text-lg font-bold text-yellow-500">MEDIUM</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

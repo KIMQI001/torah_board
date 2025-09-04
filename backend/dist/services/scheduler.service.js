@@ -8,6 +8,7 @@ const node_cron_1 = __importDefault(require("node-cron"));
 const logger_1 = require("@/utils/logger");
 const external_api_service_1 = require("@/services/external-api.service");
 const exchange_symbols_service_1 = require("@/services/exchange-symbols.service");
+const news_feeds_service_1 = require("@/services/news-feeds.service");
 const database_1 = require("@/services/database");
 class SchedulerService {
     /**
@@ -27,6 +28,8 @@ class SchedulerService {
         this.schedulePriceUpdates();
         // Update exchange symbols every 6 hours
         this.scheduleExchangeSymbolsUpdates();
+        // Update news feeds every 3 minutes
+        this.scheduleNewsFeedsUpdates();
         this.isRunning = true;
         logger_1.Logger.info('Scheduler service initialized successfully');
     }
@@ -323,6 +326,60 @@ class SchedulerService {
             return {
                 success: false,
                 message: `Exchange symbols update failed: ${error.message}`
+            };
+        }
+    }
+    /**
+     * Schedule news feeds updates every 3 minutes
+     */
+    static scheduleNewsFeedsUpdates() {
+        const task = node_cron_1.default.schedule('*/3 * * * *', async () => {
+            try {
+                logger_1.Logger.info('Starting scheduled news feeds update...');
+                await news_feeds_service_1.NewsFeedsService.aggregateFeedsTask();
+                logger_1.Logger.info('Scheduled news feeds update completed');
+            }
+            catch (error) {
+                logger_1.Logger.error('Error in scheduled news feeds update', {
+                    error: error.message
+                });
+            }
+        }, {
+            scheduled: false,
+            timezone: 'UTC'
+        });
+        task.start();
+        this.tasks.set('news-feeds-update', task);
+        logger_1.Logger.info('Scheduled news feeds updates every 3 minutes');
+    }
+    /**
+     * Manually trigger news feeds update
+     */
+    static async triggerNewsFeedsUpdate() {
+        try {
+            logger_1.Logger.info('Manual news feeds update triggered');
+            const startTime = Date.now();
+            await news_feeds_service_1.NewsFeedsService.aggregateFeedsTask();
+            const endTime = Date.now();
+            const totalFeeds = await database_1.prisma.newsFeed.count();
+            const stats = {
+                totalFeeds,
+                updateTime: `${(endTime - startTime) / 1000}s`
+            };
+            logger_1.Logger.info('Manual news feeds update completed', stats);
+            return {
+                success: true,
+                message: `News feeds update completed: ${totalFeeds} total feeds processed in ${stats.updateTime}`,
+                stats
+            };
+        }
+        catch (error) {
+            logger_1.Logger.error('Error in manual news feeds update', {
+                error: error.message
+            });
+            return {
+                success: false,
+                message: `News feeds update failed: ${error.message}`
             };
         }
     }

@@ -3,6 +3,8 @@ import { Logger } from '@/utils/logger';
 import { ExternalApiService } from '@/services/external-api.service';
 import { ExchangeSymbolsService } from '@/services/exchange-symbols.service';
 import { NewsFeedsService } from '@/services/news-feeds.service';
+import { CEXAnnouncementsService } from '@/services/cex-announcements.service';
+import { WebSocketService } from '@/services/websocket.service';
 import { prisma } from '@/services/database';
 
 export class SchedulerService {
@@ -34,6 +36,9 @@ export class SchedulerService {
 
     // Update news feeds every 3 minutes
     this.scheduleNewsFeedsUpdates();
+
+    // Update CEX announcements every 5 minutes
+    this.scheduleCEXAnnouncementsUpdates();
 
     this.isRunning = true;
     Logger.info('Scheduler service initialized successfully');
@@ -465,6 +470,97 @@ export class SchedulerService {
       return {
         success: false,
         message: `News feeds update failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Schedule CEX announcements updates every 5 minutes
+   */
+  private static scheduleCEXAnnouncementsUpdates(): void {
+    const task = cron.schedule('*/5 * * * *', async () => {
+      try {
+        Logger.info('Starting CEX announcements update task...');
+        await this.updateCEXAnnouncements();
+        Logger.info('CEX announcements update task completed successfully');
+      } catch (error) {
+        Logger.error('CEX announcements update task failed', { error });
+      }
+    }, {
+      scheduled: true,
+      name: 'cex-announcements-update'
+    });
+
+    this.tasks.set('cex-announcements-update', task);
+    Logger.info('Scheduled CEX announcements updates every 5 minutes');
+  }
+
+  /**
+   * Update CEX announcements from all supported exchanges
+   */
+  private static async updateCEXAnnouncements(): Promise<{
+    success: boolean;
+    message: string;
+    data?: any;
+  }> {
+    try {
+      // Get count before update to compare
+      const beforeCount = await prisma.cEXAnnouncement.count();
+      
+      // Clear cache to force fresh data
+      CEXAnnouncementsService.clearCache();
+
+      // Update announcements from all exchanges in parallel
+      const [binanceData, okxData, bybitData, kucoinData] = await Promise.allSettled([
+        CEXAnnouncementsService.getBinanceAnnouncements(),
+        CEXAnnouncementsService.getOKXAnnouncements(),
+        CEXAnnouncementsService.getBybitAnnouncements(),
+        CEXAnnouncementsService.getKuCoinAnnouncements()
+      ]);
+
+      // Count successful updates
+      let totalUpdated = 0;
+      const results = {
+        binance: binanceData.status === 'fulfilled' ? binanceData.value.length : 0,
+        okx: okxData.status === 'fulfilled' ? okxData.value.length : 0,
+        bybit: bybitData.status === 'fulfilled' ? bybitData.value.length : 0,
+        kucoin: kucoinData.status === 'fulfilled' ? kucoinData.value.length : 0,
+      };
+
+      totalUpdated = Object.values(results).reduce((sum, count) => sum + count, 0);
+
+      // Get count after update
+      const afterCount = await prisma.cEXAnnouncement.count();
+      const newAnnouncementsCount = afterCount - beforeCount;
+
+      Logger.info(`Updated CEX announcements: ${JSON.stringify(results)} (Total: ${totalUpdated})`);
+      
+      // Broadcast update to WebSocket clients if there are new announcements
+      if (newAnnouncementsCount > 0) {
+        // Get the latest announcements to broadcast
+        const latestAnnouncements = await CEXAnnouncementsService.getAnnouncementsFromDB({
+          limit: newAnnouncementsCount
+        });
+        
+        WebSocketService.broadcastCEXAnnouncements(latestAnnouncements);
+        WebSocketService.broadcastAnnouncementUpdate(
+          `发现 ${newAnnouncementsCount} 条新公告`, 
+          { newCount: newAnnouncementsCount }
+        );
+        
+        Logger.info(`Broadcasted ${newAnnouncementsCount} new announcements via WebSocket`);
+      }
+
+      return {
+        success: true,
+        message: `Successfully updated ${totalUpdated} announcements`,
+        data: { ...results, newCount: newAnnouncementsCount }
+      };
+    } catch (error) {
+      Logger.error('Failed to update CEX announcements', { error });
+      return {
+        success: false,
+        message: `CEX announcements update failed: ${error.message}`
       };
     }
   }

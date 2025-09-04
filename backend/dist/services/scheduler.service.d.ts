@@ -53,6 +53,21 @@ export declare class SchedulerService {
         };
     }>;
     /**
+     * Schedule news feeds updates every 3 minutes
+     */
+    private static scheduleNewsFeedsUpdates;
+    /**
+     * Manually trigger news feeds update
+     */
+    static triggerNewsFeedsUpdate(): Promise<{
+        success: boolean;
+        message: string;
+        stats?: {
+            totalFeeds: number;
+            updateTime: string;
+        };
+    }>;
+    /**
      * Get scheduler status and next run times
      */
     static getStatus(): {

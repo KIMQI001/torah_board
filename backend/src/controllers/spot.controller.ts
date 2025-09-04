@@ -287,6 +287,109 @@ export class SpotController {
   }
 
   /**
+   * 测试新爬虫服务 - 获取真实CEX公告
+   */
+  static async testCexScraper(req: AuthenticatedRequest, res: Response) {
+    try {
+      Logger.info('🔥 开始测试新爬虫服务...');
+      
+      // 使用新的爬虫服务获取数据
+      const announcements = await CEXAnnouncementsService.getAnnouncementsWithScraper();
+      
+      ResponseUtil.success(res, {
+        total: announcements.length,
+        announcements,
+        message: '新爬虫服务测试成功',
+        timestamp: Date.now()
+      }, 'CEX scraper test completed successfully');
+    } catch (error) {
+      Logger.error('CEX爬虫服务测试失败', { error });
+      ResponseUtil.error(res, 'CEX scraper test failed');
+    }
+  }
+
+  /**
+   * 测试Binance新爬虫
+   */
+  static async testBinanceScraper(req: AuthenticatedRequest, res: Response) {
+    try {
+      Logger.info('🚀 测试Binance新版爬虫...');
+      
+      const announcements = await CEXAnnouncementsService.getBinanceAnnouncementsV2();
+      
+      ResponseUtil.success(res, {
+        exchange: 'binance',
+        total: announcements.length,
+        announcements,
+        message: 'Binance新版爬虫测试成功',
+        timestamp: Date.now()
+      }, 'Binance scraper test completed successfully');
+    } catch (error) {
+      Logger.error('Binance爬虫测试失败', { error });
+      ResponseUtil.error(res, 'Binance scraper test failed');
+    }
+  }
+
+  /**
+   * 测试OKX新爬虫
+   */
+  static async testOkxScraper(req: AuthenticatedRequest, res: Response) {
+    try {
+      Logger.info('🚀 测试OKX新版爬虫...');
+      
+      const announcements = await CEXAnnouncementsService.getOKXAnnouncementsV2();
+      
+      ResponseUtil.success(res, {
+        exchange: 'okx',
+        total: announcements.length,
+        announcements,
+        message: 'OKX新版爬虫测试成功',
+        timestamp: Date.now()
+      }, 'OKX scraper test completed successfully');
+    } catch (error) {
+      Logger.error('OKX爬虫测试失败', { error });
+      ResponseUtil.error(res, 'OKX scraper test failed');
+    }
+  }
+
+  /**
+   * 测试专门的网页爬虫服务
+   */
+  static async testWebScraper(req: AuthenticatedRequest, res: Response) {
+    try {
+      Logger.info('🕷️ 测试专门网页爬虫服务...');
+      
+      // 动态导入网页爬虫服务
+      const { WebScraperService } = await import('../services/web-scraper.service');
+      const announcements = await WebScraperService.scrapeAllWeb();
+      
+      // 转换为标准格式
+      const formattedAnnouncements = announcements.map(scraped => ({
+        id: scraped.id,
+        exchange: scraped.exchange,
+        title: scraped.title,
+        content: scraped.content,
+        category: scraped.category,
+        importance: scraped.importance,
+        publishTime: scraped.publishTime,
+        tags: scraped.tags,
+        url: scraped.url
+      }));
+      
+      ResponseUtil.success(res, {
+        total: formattedAnnouncements.length,
+        announcements: formattedAnnouncements,
+        message: '专门网页爬虫测试成功',
+        timestamp: Date.now(),
+        method: '网页HTML解析'
+      }, 'Web scraper test completed successfully');
+    } catch (error) {
+      Logger.error('网页爬虫测试失败', { error });
+      ResponseUtil.error(res, 'Web scraper test failed');
+    }
+  }
+
+  /**
    * 获取价格异常
    */
   static async getPriceAnomalies(req: AuthenticatedRequest, res: Response) {

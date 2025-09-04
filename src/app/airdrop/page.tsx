@@ -10,58 +10,52 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Gift, Calendar, CheckCircle, Clock, ExternalLink, Plus, Folder, X, Trash2 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
+import { AirdropAPI, ActiveAirdrop, UserAirdropProject } from "@/services/api/airdrop.api";
 
 export default function AirdropPage() {
   const { t } = useLanguage();
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 使用示例钱包地址，实际应用中应从用户认证获取
+  const DEMO_WALLET = "11111111111111111111111111111111";
+
+  const [activeAirdrops, setActiveAirdrops] = useState<ActiveAirdrop[]>([]);
+  const [userProjects, setUserProjects] = useState<UserAirdropProject[]>([]);
 
   useEffect(() => {
     setMounted(true);
+    loadActiveAirdrops();
+    loadUserProjects();
   }, []);
-  
-  const [activeAirdrops, setActiveAirdrops] = useState([
-    {
-      project: "Jupiter DEX",
-      chain: "Solana",
-      deadline: "2024-02-15",
-      requirements: ["Trade $100+", "Hold JUP tokens"],
-      status: "active",
-      estimatedValue: "$50-200",
-    },
-    {
-      project: "Drift Protocol",
-      chain: "Solana",
-      deadline: "2024-01-30",
-      requirements: ["Provide liquidity", "Complete 5 trades"],
-      status: "active",
-      estimatedValue: "$25-100",
-    },
-    {
-      project: "Tensor NFT",
-      chain: "Solana",
-      deadline: "2024-03-01",
-      requirements: ["List NFT", "Make offer"],
-      status: "active",
-      estimatedValue: "$10-50",
-    },
-  ]);
 
-  const [completedAirdrops, setCompletedAirdrops] = useState([
-    {
-      project: "Pyth Network",
-      chain: "Solana",
-      claimedDate: "2023-11-20",
-      amount: "50号 / 5IP",
-      value: "号:50 IP:5",
-    },
-    {
-      project: "Jito MEV",
-      chain: "Solana", 
-      claimedDate: "2023-12-01",
-      amount: "30号 / 3IP",
-      value: "号:30 IP:3",
-    },
-  ]);
+  // 加载活跃空投
+  const loadActiveAirdrops = async () => {
+    try {
+      setLoading(true);
+      const result = await AirdropAPI.getActiveAirdrops();
+      setActiveAirdrops(result.data);
+      setError(null);
+    } catch (err) {
+      console.error('Failed to load active airdrops:', err);
+      setError('Failed to load active airdrops');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 加载用户项目
+  const loadUserProjects = async () => {
+    try {
+      const result = await AirdropAPI.getUserAirdropProjects({ 
+        walletAddress: DEMO_WALLET 
+      });
+      setUserProjects(result.data);
+    } catch (err) {
+      console.error('Failed to load user projects:', err);
+    }
+  };
 
   // 添加项目状态
   const [newProject, setNewProject] = useState({
@@ -77,70 +71,108 @@ export default function AirdropPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{
     isOpen: boolean;
     type: "active" | "completed";
-    index: number;
+    index: string; // 改为string类型，存储ID
     projectName: string;
   }>({
     isOpen: false,
     type: "active",
-    index: -1,
+    index: "",
     projectName: ""
   });
 
-  // 添加项目
-  const handleAddProject = () => {
-    if (!newProject.project || !newProject.chain) return;
-
-    const project = {
-      project: newProject.project,
-      chain: newProject.chain,
-      deadline: newProject.deadline,
-      requirements: newProject.requirements ? newProject.requirements.split(',').map(req => req.trim()) : [],
-      status: "active",
-      estimatedValue: newProject.estimatedValue || "$0",
-    };
-
-    if (newProject.type === "active") {
-      setActiveAirdrops([...activeAirdrops, project]);
-    } else {
-      const completedProject = {
+  // 添加活跃空投项目
+  const handleAddActiveProject = async () => {
+    if (!newProject.project || !newProject.chain || !newProject.requirements) return;
+    
+    try {
+      setLoading(true);
+      await AirdropAPI.createActiveAirdrop({
         project: newProject.project,
         chain: newProject.chain,
-        claimedDate: new Date().toISOString().split('T')[0],
-        amount: "0",
-        value: newProject.estimatedValue || "$0",
-      };
-      setCompletedAirdrops([...completedAirdrops, completedProject]);
+        deadline: newProject.deadline,
+        requirements: newProject.requirements,
+        estimatedValue: newProject.estimatedValue || "$0",
+        category: "DeFi",
+        difficulty: "Medium",
+        status: "Active",
+        tags: "[]",
+        isHot: false
+      });
+      
+      // 重新加载活跃空投列表
+      await loadActiveAirdrops();
+      
+      // 重置表单
+      setNewProject({
+        project: "",
+        chain: "",
+        deadline: "",
+        requirements: "",
+        estimatedValue: "",
+        type: "active"
+      });
+      setIsActiveDialogOpen(false);
+    } catch (err) {
+      console.error('Failed to create active airdrop:', err);
+      setError('Failed to create active airdrop');
+    } finally {
+      setLoading(false);
     }
-
-    // 重置表单
-    setNewProject({
-      project: "",
-      chain: "",
-      deadline: "",
-      requirements: "",
-      estimatedValue: "",
-      type: "active"
-    });
-    setIsActiveDialogOpen(false);
-    setIsCompletedDialogOpen(false);
   };
 
-  // 删除项目
-  const handleDeleteActiveProject = (index: number) => {
-    setActiveAirdrops(activeAirdrops.filter((_, i) => i !== index));
-    setDeleteConfirm({ isOpen: false, type: "active", index: -1, projectName: "" });
+  // 添加用户项目
+  const handleAddUserProject = async (airdropId: string, project: string, chain: string, accountCount: number, ipCount: number) => {
+    try {
+      setLoading(true);
+      await AirdropAPI.createUserAirdropProject({
+        walletAddress: DEMO_WALLET,
+        airdropId,
+        project,
+        chain,
+        accountCount,
+        ipCount,
+        status: "In Progress"
+      });
+      
+      // 重新加载用户项目列表
+      await loadUserProjects();
+    } catch (err) {
+      console.error('Failed to create user project:', err);
+      setError('Failed to create user project');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDeleteCompletedProject = (index: number) => {
-    setCompletedAirdrops(completedAirdrops.filter((_, i) => i !== index));
-    setDeleteConfirm({ isOpen: false, type: "completed", index: -1, projectName: "" });
+  // 删除活跃空投项目
+  const handleDeleteActiveProject = async (id: string) => {
+    try {
+      await AirdropAPI.deleteActiveAirdrop(id);
+      await loadActiveAirdrops();
+      setDeleteConfirm({ isOpen: false, type: "active", index: -1, projectName: "" });
+    } catch (err) {
+      console.error('Failed to delete active airdrop:', err);
+      setError('Failed to delete active airdrop');
+    }
   };
 
-  const openDeleteConfirm = (type: "active" | "completed", index: number, projectName: string) => {
+  // 删除用户项目
+  const handleDeleteUserProject = async (id: string) => {
+    try {
+      await AirdropAPI.deleteUserAirdropProject(id);
+      await loadUserProjects();
+      setDeleteConfirm({ isOpen: false, type: "completed", index: -1, projectName: "" });
+    } catch (err) {
+      console.error('Failed to delete user project:', err);
+      setError('Failed to delete user project');
+    }
+  };
+
+  const openDeleteConfirm = (type: "active" | "completed", id: string, projectName: string) => {
     setDeleteConfirm({
       isOpen: true,
       type,
-      index,
+      index: id, // 使用ID而不是index
       projectName
     });
   };
@@ -149,7 +181,7 @@ export default function AirdropPage() {
     if (deleteConfirm.type === "active") {
       handleDeleteActiveProject(deleteConfirm.index);
     } else {
-      handleDeleteCompletedProject(deleteConfirm.index);
+      handleDeleteUserProject(deleteConfirm.index);
     }
   };
 

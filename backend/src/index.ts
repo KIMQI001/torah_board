@@ -20,6 +20,7 @@ import { roiRoutes } from '@/routes/roi.routes';
 import { dashboardRoutes } from '@/routes/dashboard.routes';
 import daoRoutes from '@/routes/dao.routes';
 import { spotRoutes } from '@/routes/spot.routes';
+import { airdropRoutes } from '@/routes/airdrop.routes';
 
 // Import services
 import { SchedulerService } from '@/services/scheduler.service';
@@ -37,7 +38,7 @@ app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://your-frontend-domain.com'] 
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 'http://localhost:3005', 'http://localhost:3006'],
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 'http://localhost:3004', 'http://localhost:3005', 'http://localhost:3006'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -115,6 +116,7 @@ app.use(`/api/${API_VERSION}/nodes`, nodesRoutes);
 app.use(`/api/${API_VERSION}/roi`, roiRoutes);
 app.use(`/api/${API_VERSION}/dashboard`, dashboardRoutes);
 app.use(`/api/${API_VERSION}/spot`, spotRoutes);
+app.use(`/api/${API_VERSION}/airdrop`, airdropRoutes);
 app.use(`/api/${API_VERSION}`, daoRoutes);
 
 // 404 handler

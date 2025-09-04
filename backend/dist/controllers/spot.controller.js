@@ -8,6 +8,8 @@ const cex_announcements_service_1 = require("@/services/cex-announcements.servic
 const price_alerts_service_1 = require("@/services/price-alerts.service");
 const realtime_price_manager_service_1 = require("@/services/realtime-price-manager.service");
 const exchange_symbols_service_1 = require("@/services/exchange-symbols.service");
+const news_feeds_service_1 = require("@/services/news-feeds.service");
+const onchain_feeds_service_1 = require("@/services/onchain-feeds.service");
 const database_1 = require("@/services/database");
 class SpotController {
     /**
@@ -727,6 +729,153 @@ class SpotController {
         catch (error) {
             logger_1.Logger.error('Failed to get exchange symbols stats', { error });
             response_1.ResponseUtil.error(res, 'Failed to get exchange symbols statistics');
+        }
+    }
+    // ==================== News Feeds API Methods ====================
+    /**
+     * 获取聚合快讯
+     */
+    static async getNewsFeeds(req, res) {
+        try {
+            const { sources, categories, importance, symbols, exchanges, isHot, limit = 20, offset = 0 } = req.query;
+            const filter = {
+                ...(sources && { sources: Array.isArray(sources) ? sources : [sources] }),
+                ...(categories && { categories: Array.isArray(categories) ? categories : [categories] }),
+                ...(importance && { importance: importance }),
+                ...(symbols && { symbols: Array.isArray(symbols) ? symbols : [symbols] }),
+                ...(exchanges && { exchanges: Array.isArray(exchanges) ? exchanges : [exchanges] }),
+                ...(isHot !== undefined && { isHot: isHot === 'true' }),
+                limit: Number(limit),
+                offset: Number(offset)
+            };
+            const feeds = await news_feeds_service_1.NewsFeedsService.aggregateFeeds(filter);
+            response_1.ResponseUtil.success(res, feeds, 'News feeds retrieved successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to get news feeds', { error });
+            response_1.ResponseUtil.error(res, 'Failed to get news feeds');
+        }
+    }
+    /**
+     * 获取热门快讯
+     */
+    static async getHotNewsFeeds(req, res) {
+        try {
+            const { limit = 15 } = req.query;
+            const feeds = await news_feeds_service_1.NewsFeedsService.getHotFeeds(Number(limit));
+            response_1.ResponseUtil.success(res, feeds, 'Hot news feeds retrieved successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to get hot news feeds', { error });
+            response_1.ResponseUtil.error(res, 'Failed to get hot news feeds');
+        }
+    }
+    /**
+     * 获取链上数据快讯
+     */
+    static async getOnChainFeeds(req, res) {
+        try {
+            const { blockchain, eventType, minValue, tokenSymbol, alertsOnly, limit = 20, offset = 0 } = req.query;
+            const filter = {
+                ...(blockchain && { blockchain: blockchain }),
+                ...(eventType && { eventType: eventType }),
+                ...(minValue && { minValue: Number(minValue) }),
+                ...(tokenSymbol && { tokenSymbol: tokenSymbol }),
+                ...(alertsOnly !== undefined && { alertsOnly: alertsOnly === 'true' }),
+                limit: Number(limit),
+                offset: Number(offset)
+            };
+            const feeds = await onchain_feeds_service_1.OnChainFeedsService.getOnChainFeeds(filter);
+            response_1.ResponseUtil.success(res, feeds, 'On-chain feeds retrieved successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to get on-chain feeds', { error: error.message });
+            response_1.ResponseUtil.error(res, 'Failed to get on-chain feeds');
+        }
+    }
+    /**
+     * 获取巨鲸活动
+     */
+    static async getWhaleActivity(req, res) {
+        try {
+            const feeds = await onchain_feeds_service_1.OnChainFeedsService.getWhaleActivity();
+            response_1.ResponseUtil.success(res, feeds, 'Whale activity retrieved successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to get whale activity', { error });
+            response_1.ResponseUtil.error(res, 'Failed to get whale activity');
+        }
+    }
+    /**
+     * 获取特定币种相关快讯
+     */
+    static async getSymbolNewsFeeds(req, res) {
+        try {
+            const { symbol } = req.params;
+            const { limit = 20 } = req.query;
+            const feeds = await news_feeds_service_1.NewsFeedsService.getSymbolRelatedFeeds(symbol, Number(limit));
+            response_1.ResponseUtil.success(res, feeds, `News feeds for ${symbol} retrieved successfully`);
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to get symbol news feeds', { error, symbol: req.params.symbol });
+            response_1.ResponseUtil.error(res, 'Failed to get symbol news feeds');
+        }
+    }
+    /**
+     * 手动触发快讯聚合更新
+     */
+    static async triggerFeedsUpdate(req, res) {
+        try {
+            await news_feeds_service_1.NewsFeedsService.aggregateFeedsTask();
+            response_1.ResponseUtil.success(res, { updated: true }, 'News feeds updated successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to trigger feeds update', { error });
+            response_1.ResponseUtil.error(res, 'Failed to trigger feeds update');
+        }
+    }
+    /**
+     * 获取快讯统计信息
+     */
+    static async getFeedsStats(req, res) {
+        try {
+            const [totalFeeds, hotFeeds, sourceStats, categoryStats] = await Promise.all([
+                database_1.prisma.newsFeed.count(),
+                database_1.prisma.newsFeed.count({ where: { isHot: true } }),
+                database_1.prisma.newsFeed.groupBy({
+                    by: ['source'],
+                    _count: { id: true }
+                }),
+                database_1.prisma.newsFeed.groupBy({
+                    by: ['category'],
+                    _count: { id: true }
+                })
+            ]);
+            const recentCount = await database_1.prisma.newsFeed.count({
+                where: {
+                    createdAt: {
+                        gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // 24小时内
+                    }
+                }
+            });
+            const result = {
+                totalFeeds,
+                hotFeeds,
+                recentFeeds: recentCount,
+                sources: sourceStats.map(stat => ({
+                    source: stat.source,
+                    count: stat._count.id
+                })),
+                categories: categoryStats.map(stat => ({
+                    category: stat.category,
+                    count: stat._count.id
+                }))
+            };
+            response_1.ResponseUtil.success(res, result, 'Feeds statistics retrieved successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to get feeds stats', { error });
+            response_1.ResponseUtil.error(res, 'Failed to get feeds statistics');
         }
     }
 }

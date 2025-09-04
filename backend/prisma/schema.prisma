@@ -594,6 +594,34 @@ model OnChainFeed {
   @@map("onchain_feeds")
 }
 
+// CEX交易所公告表
+model CEXAnnouncement {
+  id          String   @id @default(cuid())
+  exchangeId  String   // 交易所特有的公告ID，如 "binance_12345"
+  exchange    String   // 交易所：'binance', 'okx', 'bybit', 'kucoin', 'gate', 'huobi', 'coinbase', 'kraken', 'bitget'
+  title       String   // 公告标题
+  content     String   // 公告内容
+  category    String   // 分类：'listing', 'delisting', 'trading', 'derivatives', 'earn', 'maintenance', 'promotion', 'security', 'wallet', 'api', 'mobile', 'regulatory', 'service', 'general'
+  importance  String   @default("medium") // 重要性：'high', 'medium', 'low'
+  publishTime DateTime // 发布时间
+  tags        String   // JSON数组：相关标签
+  url         String   // 原始链接
+  isProcessed Boolean  @default(false) // 是否已处理（用于增量更新）
+  hash        String?  // 内容哈希值（用于去重）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([exchangeId, exchange])
+  @@index([exchange])
+  @@index([category])
+  @@index([importance])
+  @@index([publishTime])
+  @@index([isProcessed])
+  @@index([hash])
+  @@index([createdAt])
+  @@map("cex_announcements")
+}
+
 // 用户快讯偏好表
 model UserNewsPreference {
   id            String   @id @default(cuid())
@@ -615,4 +643,65 @@ model UserNewsPreference {
   @@unique([userId])
   @@index([userId])
   @@map("user_news_preferences")
+}
+
+// 活跃空投项目表
+model ActiveAirdrop {
+  id              String   @id @default(cuid())
+  project         String   // 项目名称
+  chain           String   // 区块链：'Solana', 'Ethereum', 'BSC', 'Polygon', 'Arbitrum'
+  deadline        String?  // 截止日期（字符串格式）
+  requirements    String   // 任务要求
+  estimatedValue  String   // 预估价值
+  category        String   @default("DeFi") // 项目类别：'DeFi', 'NFT', 'GameFi', 'Infrastructure'
+  difficulty      String   @default("Medium") // 难度：'Easy', 'Medium', 'Hard'
+  status          String   @default("Active") // 状态：'Active', 'Ended', 'Paused'
+  officialUrl     String?  // 官方链接
+  twitterUrl      String?  // Twitter链接
+  discordUrl      String?  // Discord链接
+  description     String?  // 项目描述
+  tags            String   // JSON数组：标签
+  isHot           Boolean  @default(false) // 是否为热门项目
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  userProjects    UserAirdropProject[]
+  
+  @@index([chain])
+  @@index([status])
+  @@index([isHot])
+  @@index([createdAt])
+  @@map("active_airdrops")
+}
+
+// 用户空投项目表（我的项目）
+model UserAirdropProject {
+  id              String   @id @default(cuid())
+  userId          String   // 用户ID，关联钱包地址
+  walletAddress   String   // 钱包地址
+  airdropId       String   // 关联的活跃空投ID
+  project         String   // 项目名称
+  chain           String   // 区块链
+  accountCount    Int      @default(0) // 起号数量
+  ipCount         Int      @default(0) // IP数量
+  status          String   @default("In Progress") // 状态：'In Progress', 'Completed', 'Failed'
+  progressNotes   String?  // 进度备注
+  claimedDate     String?  // 完成/领取日期
+  claimedAmount   String?  // 领取数量
+  estimatedValue  String?  // 预估价值
+  actualValue     String?  // 实际价值
+  txHash          String?  // 领取交易哈希
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  airdrop         ActiveAirdrop @relation(fields: [airdropId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([walletAddress])
+  @@index([airdropId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("user_airdrop_projects")
 }

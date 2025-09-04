@@ -20,6 +20,7 @@ const translations = {
     'nav.spot': 'Spot',
     'nav.journal': 'Journal',
     'nav.tools': 'Tools',
+    'nav.news': 'News',
     'nav.depin': 'DePIN',
     'nav.dao': 'DAO',
     
@@ -473,6 +474,10 @@ const translations = {
     'journal.categories': 'Categories',
     'journal.tagsUsed': 'Tags Used',
     'journal.thisWeek': 'This Week',
+
+    // News
+    'news.title': 'News',
+    'news.subtitle': 'Latest blockchain and cryptocurrency news from top sources',
   },
   zh: {
     // Navigation
@@ -483,6 +488,7 @@ const translations = {
     'nav.spot': '现货',
     'nav.journal': '交易日志',
     'nav.tools': '工具',
+    'nav.news': '新闻',
     'nav.depin': 'DePIN',
     'nav.dao': 'DAO',
     
@@ -935,6 +941,10 @@ const translations = {
     'journal.categories': '分类',
     'journal.tagsUsed': '使用标签',
     'journal.thisWeek': '本周',
+
+    // News
+    'news.title': '新闻',
+    'news.subtitle': '来自顶级来源的最新区块链和加密货币新闻',
   }
 }
 

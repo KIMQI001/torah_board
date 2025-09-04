@@ -240,17 +240,67 @@ class ExchangeSymbolsService {
         }
     }
     /**
+     * 获取热门币种（当搜索为空时使用）
+     */
+    static async getPopularSymbols(limit = 50, exchanges) {
+        try {
+            const popularBaseAssets = ['BTC', 'ETH', 'BNB', 'SOL', 'USDT', 'USDC', 'ADA', 'XRP', 'DOT', 'DOGE'];
+            const whereClause = {
+                AND: [
+                    { status: 'TRADING' },
+                    { isSpotTradingAllowed: true },
+                    { baseAsset: { in: popularBaseAssets } }
+                ]
+            };
+            if (exchanges && exchanges.length > 0) {
+                whereClause.AND.push({ exchange: { in: exchanges } });
+            }
+            const symbols = await database_1.prisma.exchangeSymbol.findMany({
+                where: whereClause,
+                orderBy: [
+                    { baseAsset: 'asc' },
+                    { exchange: 'asc' }
+                ],
+                take: Math.min(limit, 100),
+                select: {
+                    id: true,
+                    symbol: true,
+                    baseAsset: true,
+                    quoteAsset: true,
+                    exchange: true,
+                    status: true,
+                    isSpotTradingAllowed: true,
+                    baseAssetPrecision: true,
+                    quotePrecision: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            });
+            return symbols;
+        }
+        catch (error) {
+            logger_1.Logger.error('获取热门币种失败', { error });
+            return [];
+        }
+    }
+    /**
      * 从数据库搜索币种信息
      */
     static async searchSymbols(query, limit = 50, exchanges) {
         try {
+            // 优化：如果查询为空，返回热门币种
+            if (!query || query.length < 1) {
+                return await this.getPopularSymbols(limit, exchanges);
+            }
+            const upperQuery = query.toUpperCase();
             const whereClause = {
                 AND: [
                     { status: 'TRADING' },
+                    { isSpotTradingAllowed: true },
                     {
                         OR: [
-                            { baseAsset: { contains: query.toUpperCase() } },
-                            { symbol: { contains: query.toUpperCase() } }
+                            { baseAsset: { startsWith: upperQuery } },
+                            { symbol: { startsWith: upperQuery } }
                         ]
                     }
                 ]
@@ -264,7 +314,7 @@ class ExchangeSymbolsService {
                     { baseAsset: 'asc' },
                     { exchange: 'asc' }
                 ],
-                take: limit,
+                take: Math.min(limit, 100), // 限制最大查询数量
                 select: {
                     id: true,
                     symbol: true,
