@@ -135,6 +135,14 @@ class WebSocketService {
                         timestamp: new Date().toISOString()
                     });
                     break;
+                case 'subscribe_announcements':
+                    // Client wants to subscribe to CEX announcements
+                    this.sendToClient(ws, {
+                        type: 'system_status',
+                        data: { message: 'Subscribed to CEX announcements' },
+                        timestamp: new Date().toISOString()
+                    });
+                    break;
                 default:
                     logger_1.Logger.warn('Unknown WebSocket message type', {
                         messageType: message.type,
@@ -276,6 +284,36 @@ class WebSocketService {
         this.broadcastToUser(userId, {
             type: 'earnings_update',
             data: earnings,
+            timestamp: new Date().toISOString()
+        });
+    }
+    /**
+     * Broadcast new CEX announcements to all clients
+     */
+    static broadcastCEXAnnouncements(announcements) {
+        if (announcements.length === 0)
+            return;
+        this.broadcastToAll({
+            type: 'cex_announcements',
+            data: {
+                announcements,
+                count: announcements.length,
+                timestamp: new Date().toISOString()
+            },
+            timestamp: new Date().toISOString()
+        });
+    }
+    /**
+     * Broadcast announcement update to all clients
+     */
+    static broadcastAnnouncementUpdate(message, data) {
+        this.broadcastToAll({
+            type: 'announcement_update',
+            data: {
+                message,
+                ...data,
+                timestamp: new Date().toISOString()
+            },
             timestamp: new Date().toISOString()
         });
     }

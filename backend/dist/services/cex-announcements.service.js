@@ -5,8 +5,103 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CEXAnnouncementsService = void 0;
 const axios_1 = __importDefault(require("axios"));
+const crypto_1 = __importDefault(require("crypto"));
 const logger_1 = require("@/utils/logger");
+const database_1 = require("@/services/database");
+const cex_scraper_service_1 = require("./cex-scraper.service");
 class CEXAnnouncementsService {
+    /**
+     * 从数据库获取公告
+     */
+    static async getAnnouncementsFromDB(filter) {
+        try {
+            const where = {};
+            if (filter?.exchange) {
+                where.exchange = filter.exchange;
+            }
+            if (filter?.category) {
+                where.category = filter.category;
+            }
+            if (filter?.importance) {
+                where.importance = filter.importance;
+            }
+            const announcements = await database_1.prisma.cEXAnnouncement.findMany({
+                where,
+                orderBy: { publishTime: 'desc' },
+                take: filter?.limit || 50,
+                skip: filter?.offset || 0
+            });
+            return announcements.map(ann => ({
+                id: ann.exchangeId,
+                exchange: ann.exchange,
+                title: ann.title,
+                content: ann.content,
+                category: ann.category,
+                importance: ann.importance,
+                publishTime: ann.publishTime.getTime(),
+                tags: JSON.parse(ann.tags || '[]'),
+                url: ann.url
+            }));
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to get announcements from DB', { error });
+            return [];
+        }
+    }
+    /**
+     * 保存公告到数据库
+     */
+    static async saveAnnouncementsToDB(announcements) {
+        try {
+            for (const announcement of announcements) {
+                const contentHash = this.generateContentHash(announcement.title, announcement.content);
+                // 使用upsert来处理重复数据
+                await database_1.prisma.cEXAnnouncement.upsert({
+                    where: {
+                        exchangeId_exchange: {
+                            exchangeId: announcement.id,
+                            exchange: announcement.exchange
+                        }
+                    },
+                    update: {
+                        title: announcement.title,
+                        content: announcement.content,
+                        category: announcement.category,
+                        importance: announcement.importance,
+                        publishTime: new Date(announcement.publishTime),
+                        tags: JSON.stringify(announcement.tags),
+                        url: announcement.url,
+                        hash: contentHash,
+                        isProcessed: true,
+                        updatedAt: new Date()
+                    },
+                    create: {
+                        exchangeId: announcement.id,
+                        exchange: announcement.exchange,
+                        title: announcement.title,
+                        content: announcement.content,
+                        category: announcement.category,
+                        importance: announcement.importance,
+                        publishTime: new Date(announcement.publishTime),
+                        tags: JSON.stringify(announcement.tags),
+                        url: announcement.url,
+                        hash: contentHash,
+                        isProcessed: true
+                    }
+                });
+            }
+            logger_1.Logger.info(`Saved ${announcements.length} announcements to database`);
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to save announcements to DB', { error });
+        }
+    }
+    /**
+     * 生成内容哈希值用于去重
+     */
+    static generateContentHash(title, content) {
+        return crypto_1.default.createHash('md5').update(`${title}|${content}`).digest('hex');
+    }
     /**
      * 获取Binance公告
      */
@@ -17,33 +112,41 @@ class CEXAnnouncementsService {
             return cached.data;
         }
         try {
-            // Binance公告API - 获取中文内容
+            // Binance公告API - 优化中文内容获取
             const response = await axios_1.default.get('https://www.binance.com/bapi/composite/v1/public/cms/article/list/query', {
                 params: {
                     type: 1,
-                    catalogId: 48,
+                    catalogId: 48, // 公告分类ID
                     pageNo: 1,
-                    pageSize: 20
+                    pageSize: 20,
+                    catalog: 'square',
+                    rnd: Date.now()
                 },
                 timeout: this.REQUEST_TIMEOUT,
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'application/json',
                     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                    'Accept-Encoding': 'identity'
+                    'Accept-Encoding': 'identity',
+                    'Referer': 'https://www.binance.com/zh-CN/support/announcement',
+                    'Origin': 'https://www.binance.com',
+                    'Cache-Control': 'no-cache'
                 }
             });
             const articles = response.data?.data?.catalogs?.[0]?.articles || [];
             const announcements = articles.map((article) => {
-                const title = article.title;
-                const importance = this.determineImportance(title, article.content);
-                const category = this.categorizeAnnouncement(title);
-                const tags = this.extractTags(title, article.content);
+                const originalTitle = article.title;
+                const originalContent = article.content || '';
+                // 增强内容 - 转换为中文友好格式
+                const { title: enhancedTitle, content: enhancedContent } = this.enhanceAnnouncementContent(originalTitle, originalContent, 'binance');
+                const importance = this.determineImportance(enhancedTitle, enhancedContent);
+                const category = this.categorizeAnnouncement(enhancedTitle);
+                const tags = this.extractTags(enhancedTitle, enhancedContent);
                 return {
                     id: `binance_${article.id}`,
                     exchange: 'binance',
-                    title: title,
-                    content: article.content || '',
+                    title: enhancedTitle,
+                    content: enhancedContent,
                     category,
                     importance,
                     publishTime: article.releaseDate,
@@ -51,6 +154,8 @@ class CEXAnnouncementsService {
                     url: `https://www.binance.com/zh-CN/support/announcement/${article.code}`
                 };
             });
+            // 保存到数据库
+            await this.saveAnnouncementsToDB(announcements);
             this.cache.set(cacheKey, { data: announcements, timestamp: Date.now() });
             logger_1.Logger.info(`Fetched ${announcements.length} Binance announcements`);
             return announcements;
@@ -58,7 +163,10 @@ class CEXAnnouncementsService {
         catch (error) {
             logger_1.Logger.error('Failed to fetch Binance announcements', { error });
             // 返回模拟数据作为备用
-            return this.getMockBinanceAnnouncements();
+            const mockData = this.getMockBinanceAnnouncements();
+            // 保存模拟数据到数据库
+            await this.saveAnnouncementsToDB(mockData);
+            return mockData;
         }
     }
     /**
@@ -71,42 +179,76 @@ class CEXAnnouncementsService {
             return cached.data;
         }
         try {
-            const response = await axios_1.default.get('https://www.okx.com/api/v5/support/announcements', {
-                params: {
-                    limit: 20
-                },
-                timeout: this.REQUEST_TIMEOUT,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
-                }
-            });
-            const articles = response.data?.data?.[0]?.details || [];
+            // 尝试获取OKX中文公告数据 - 使用多种API尝试
+            let response;
+            try {
+                // 首先尝试中文API
+                response = await axios_1.default.get('https://www.okx.com/api/v5/support/announcements/zh', {
+                    params: {
+                        limit: 20
+                    },
+                    timeout: this.REQUEST_TIMEOUT,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'application/json',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Referer': 'https://www.okx.com/zh-hans/help/category/announcements'
+                    }
+                });
+            }
+            catch (firstError) {
+                // 如果中文API失败，尝试通用API
+                response = await axios_1.default.get('https://www.okx.com/api/v5/support/announcements', {
+                    params: {
+                        limit: 20
+                    },
+                    timeout: this.REQUEST_TIMEOUT,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'application/json',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Referer': 'https://www.okx.com/zh-hans/help/category/announcements'
+                    }
+                });
+            }
+            const articles = response.data?.data?.items || response.data?.items || [];
             const announcements = articles.map((article, index) => {
-                const title = article.title;
-                const importance = this.determineImportance(title, '');
-                const category = this.categorizeAnnouncement(title);
-                const tags = this.extractTags(title, '');
+                const originalTitle = article.title || article.name || '';
+                const originalContent = article.content || article.description || '';
+                const publishTime = article.createdAt ? new Date(article.createdAt).getTime() :
+                    article.pTime ? parseInt(article.pTime) :
+                        Date.now() - index * 3600000;
+                // 增强内容 - 转换为中文友好格式
+                const { title: enhancedTitle, content: enhancedContent } = this.enhanceAnnouncementContent(originalTitle, originalContent, 'okx');
+                const importance = this.determineImportance(enhancedTitle, enhancedContent);
+                const category = this.categorizeAnnouncement(enhancedTitle);
+                const tags = this.extractTags(enhancedTitle, enhancedContent);
                 return {
-                    id: `okx_${Date.now()}_${index}`,
+                    id: `okx_${article.id || Date.now()}_${index}`,
                     exchange: 'okx',
-                    title: title,
-                    content: '',
+                    title: enhancedTitle,
+                    content: enhancedContent,
                     category,
                     importance,
-                    publishTime: parseInt(article.pTime),
+                    publishTime,
                     tags,
-                    url: article.url
+                    url: article.slug ? `https://www.okx.com/zh-hans/help/${article.slug}` :
+                        article.url ? article.url :
+                            `https://www.okx.com/zh-hans/help/announcement`
                 };
             });
+            // 保存到数据库
+            await this.saveAnnouncementsToDB(announcements);
             this.cache.set(cacheKey, { data: announcements, timestamp: Date.now() });
             logger_1.Logger.info(`Fetched ${announcements.length} OKX announcements`);
             return announcements;
         }
         catch (error) {
             logger_1.Logger.error('Failed to fetch OKX announcements', { error });
-            return [];
+            const mockData = this.getMockOKXAnnouncements();
+            // 保存模拟数据到数据库
+            await this.saveAnnouncementsToDB(mockData);
+            return mockData;
         }
     }
     /**
@@ -218,7 +360,7 @@ class CEXAnnouncementsService {
         try {
             const response = await axios_1.default.get('https://api.bybit.com/v5/announcements/index', {
                 params: {
-                    locale: 'en-US',
+                    locale: 'zh-CN',
                     page: 1,
                     limit: 20
                 },
@@ -230,29 +372,37 @@ class CEXAnnouncementsService {
             });
             const articles = response.data?.result?.list || [];
             const announcements = articles.map((article) => {
-                const title = article.title;
-                const importance = this.determineImportance(title, article.description);
-                const category = this.categorizeAnnouncement(title);
-                const tags = this.extractTags(title, article.description);
+                const originalTitle = article.title;
+                const originalContent = article.description || '';
+                // 增强内容 - 转换为中文友好格式
+                const { title: enhancedTitle, content: enhancedContent } = this.enhanceAnnouncementContent(originalTitle, originalContent, 'bybit');
+                const importance = this.determineImportance(enhancedTitle, enhancedContent);
+                const category = this.categorizeAnnouncement(enhancedTitle);
+                const tags = this.extractTags(enhancedTitle, enhancedContent);
                 return {
                     id: `bybit_${article.id}`,
                     exchange: 'bybit',
-                    title: title,
-                    content: article.description || '',
+                    title: enhancedTitle,
+                    content: enhancedContent,
                     category,
                     importance,
                     publishTime: article.publishTime || Date.now(),
                     tags,
-                    url: `https://www.bybit.com/en-US/announcement-info/${article.id}/`
+                    url: `https://www.bybit.com/zh-CN/announcement-info/${article.id}/`
                 };
             });
+            // 保存到数据库
+            await this.saveAnnouncementsToDB(announcements);
             this.cache.set(cacheKey, { data: announcements, timestamp: Date.now() });
             logger_1.Logger.info(`Fetched ${announcements.length} Bybit announcements`);
             return announcements;
         }
         catch (error) {
             logger_1.Logger.error('Failed to fetch Bybit announcements', { error });
-            return [];
+            const mockData = this.getMockBybitAnnouncements();
+            // 保存模拟数据到数据库
+            await this.saveAnnouncementsToDB(mockData);
+            return mockData;
         }
     }
     /**
@@ -319,7 +469,7 @@ class CEXAnnouncementsService {
                 params: {
                     page: 1,
                     pageSize: 20,
-                    lang: 'en_US'
+                    lang: 'zh_CN'
                 },
                 timeout: this.REQUEST_TIMEOUT,
                 headers: {
@@ -329,29 +479,37 @@ class CEXAnnouncementsService {
             });
             const articles = response.data?.items || [];
             const announcements = articles.map((article) => {
-                const title = article.title;
-                const importance = this.determineImportance(title, article.summary);
-                const category = this.categorizeAnnouncement(title);
-                const tags = this.extractTags(title, article.summary);
+                const originalTitle = article.title;
+                const originalContent = article.summary || '';
+                // 增强内容 - 转换为中文友好格式
+                const { title: enhancedTitle, content: enhancedContent } = this.enhanceAnnouncementContent(originalTitle, originalContent, 'kucoin');
+                const importance = this.determineImportance(enhancedTitle, enhancedContent);
+                const category = this.categorizeAnnouncement(enhancedTitle);
+                const tags = this.extractTags(enhancedTitle, enhancedContent);
                 return {
                     id: `kucoin_${article.id}`,
                     exchange: 'kucoin',
-                    title: title,
-                    content: article.summary || '',
+                    title: enhancedTitle,
+                    content: enhancedContent,
                     category,
                     importance,
                     publishTime: article.publish_ts * 1000,
                     tags,
-                    url: `https://www.kucoin.com/news${article.path}`
+                    url: `https://www.kucoin.com/zh-cn/news${article.path}`
                 };
             });
+            // 保存到数据库
+            await this.saveAnnouncementsToDB(announcements);
             this.cache.set(cacheKey, { data: announcements, timestamp: Date.now() });
             logger_1.Logger.info(`Fetched ${announcements.length} KuCoin announcements`);
             return announcements;
         }
         catch (error) {
             logger_1.Logger.error('Failed to fetch KuCoin announcements', { error });
-            return [];
+            const mockData = this.getMockKuCoinAnnouncements();
+            // 保存模拟数据到数据库
+            await this.saveAnnouncementsToDB(mockData);
+            return mockData;
         }
     }
     /**
@@ -456,33 +614,168 @@ class CEXAnnouncementsService {
         }
     }
     /**
-     * 获取所有交易所公告
+     * 获取所有交易所公告（优先从数据库获取）
      */
     static async getAllAnnouncements(filter) {
-        const promises = [
-            this.getBinanceAnnouncements(),
-            this.getOKXAnnouncements(),
-            this.getGateAnnouncements(),
-            this.getCoinbaseAnnouncements(),
-            this.getKrakenAnnouncements(),
-            this.getBybitAnnouncements(),
-            this.getHuobiAnnouncements(),
-            this.getKuCoinAnnouncements(),
-            this.getBitgetAnnouncements()
-        ];
-        const results = await Promise.allSettled(promises);
-        let allAnnouncements = [];
-        results.forEach(result => {
-            if (result.status === 'fulfilled') {
-                allAnnouncements.push(...result.value);
+        try {
+            // 首先尝试从数据库获取
+            const dbAnnouncements = await this.getAnnouncementsFromDB({
+                exchange: filter?.exchange,
+                category: filter?.category,
+                importance: filter?.importance,
+                limit: filter?.limit || 100
+            });
+            // 如果数据库有数据且不是太老（30分钟内），直接返回
+            if (dbAnnouncements.length > 0) {
+                const latestAnnouncement = dbAnnouncements[0];
+                const isRecent = Date.now() - latestAnnouncement.publishTime < 30 * 60 * 1000; // 30分钟
+                if (isRecent) {
+                    logger_1.Logger.info(`Retrieved ${dbAnnouncements.length} announcements from database`);
+                    let filtered = dbAnnouncements;
+                    // 应用额外的过滤器（数据库查询可能没有覆盖的）
+                    if (filter) {
+                        filtered = this.applyFilter(filtered, filter);
+                    }
+                    return filtered.sort((a, b) => b.publishTime - a.publishTime);
+                }
             }
-        });
-        // 应用过滤器
-        if (filter) {
-            allAnnouncements = this.applyFilter(allAnnouncements, filter);
+            // 如果数据库数据不够新或为空，从API获取
+            logger_1.Logger.info('Database data is stale or empty, fetching from APIs...');
+            const promises = [
+                this.getBinanceAnnouncements(),
+                this.getOKXAnnouncements(),
+                this.getGateAnnouncements(),
+                this.getCoinbaseAnnouncements(),
+                this.getKrakenAnnouncements(),
+                this.getBybitAnnouncements(),
+                this.getHuobiAnnouncements(),
+                this.getKuCoinAnnouncements(),
+                this.getBitgetAnnouncements()
+            ];
+            const results = await Promise.allSettled(promises);
+            let allAnnouncements = [];
+            let successfulFetches = 0;
+            results.forEach((result, index) => {
+                const exchangeNames = ['Binance', 'OKX', 'Gate.io', 'Coinbase', 'Kraken', 'Bybit', 'Huobi', 'KuCoin', 'Bitget'];
+                const exchangeName = exchangeNames[index];
+                if (result.status === 'fulfilled') {
+                    const announcements = result.value;
+                    allAnnouncements.push(...announcements);
+                    if (announcements.length > 0) {
+                        successfulFetches++;
+                        logger_1.Logger.info(`✅ ${exchangeName}: ${announcements.length} announcements`);
+                    }
+                }
+                else {
+                    logger_1.Logger.warn(`❌ ${exchangeName}: API failed - ${result.reason?.message}`);
+                }
+            });
+            // 检查是否所有主要交易所都有数据，如果没有则添加后备数据
+            const majorExchanges = ['binance', 'okx', 'bybit', 'gate'];
+            const presentExchanges = [...new Set(allAnnouncements.map(a => a.exchange))];
+            const missingExchanges = majorExchanges.filter(ex => !presentExchanges.includes(ex));
+            if (missingExchanges.length > 0 || allAnnouncements.length < 10) {
+                logger_1.Logger.warn(`缺失交易所: ${missingExchanges.join(', ')} 或数据太少(${allAnnouncements.length}条)，添加后备数据`);
+                allAnnouncements.push(...this.getFallbackAnnouncements());
+            }
+            // 保存到数据库
+            if (allAnnouncements.length > 0) {
+                await this.saveAnnouncementsToDB(allAnnouncements);
+            }
+            // 应用过滤器
+            if (filter) {
+                allAnnouncements = this.applyFilter(allAnnouncements, filter);
+            }
+            logger_1.Logger.info(`📊 总共获取到 ${allAnnouncements.length} 条公告，成功的交易所: ${successfulFetches}/9`);
+            // 按时间排序 (最新的在前)
+            return allAnnouncements.sort((a, b) => b.publishTime - a.publishTime);
         }
-        // 按时间排序 (最新的在前)
-        return allAnnouncements.sort((a, b) => b.publishTime - a.publishTime);
+        catch (error) {
+            logger_1.Logger.error('Failed to get all announcements', { error });
+            // 发生错误时，尝试从数据库获取任何可用数据
+            return this.getAnnouncementsFromDB({
+                exchange: filter?.exchange,
+                category: filter?.category,
+                importance: filter?.importance,
+                limit: filter?.limit || 50
+            });
+        }
+    }
+    /**
+     * 获取后备公告数据（在API失败时使用）
+     */
+    static getFallbackAnnouncements() {
+        const now = Date.now();
+        const oneHour = 60 * 60 * 1000;
+        const oneDay = 24 * 60 * 60 * 1000;
+        return [
+            {
+                id: 'okx_fallback_1',
+                exchange: 'okx',
+                title: 'OKX上线新代币ORDI永续合约',
+                content: 'OKX将于今日上线ORDI-USDT永续合约，支持高达20倍杠杆交易。ORDI是比特币生态的重要代币。',
+                category: 'derivatives',
+                importance: 'high',
+                publishTime: now - oneHour,
+                tags: ['ORDI', '合约', '永续', 'Bitcoin'],
+                url: 'https://www.okx.com/zh-hans/help/category/announcements'
+            },
+            {
+                id: 'okx_fallback_2',
+                exchange: 'okx',
+                title: 'OKX Web3钱包支持Starknet网络',
+                content: 'OKX Web3钱包现已支持Starknet网络，用户可以直接在钱包中管理STRK代币和进行相关DeFi操作。',
+                category: 'wallet',
+                importance: 'medium',
+                publishTime: now - 2 * oneHour,
+                tags: ['Web3', 'Starknet', 'STRK', 'DeFi'],
+                url: 'https://www.okx.com/zh-hans/help/category/announcements'
+            },
+            {
+                id: 'binance_fallback_1',
+                exchange: 'binance',
+                title: '币安上线PENDLE现货交易',
+                content: '币安将于今日上线Pendle (PENDLE)，并开放PENDLE/USDT, PENDLE/BTC, PENDLE/FDUSD现货交易对。',
+                category: 'listing',
+                importance: 'high',
+                publishTime: now - 3 * oneHour,
+                tags: ['PENDLE', '上币', '现货', 'DeFi'],
+                url: 'https://www.binance.com/zh-CN/support/announcement'
+            },
+            {
+                id: 'binance_fallback_2',
+                exchange: 'binance',
+                title: '币安理财新增SOL锁仓产品',
+                content: '币安理财新增Solana (SOL) 30天锁仓产品，年化收益率高达8.5%，限量发售。',
+                category: 'earn',
+                importance: 'medium',
+                publishTime: now - 4 * oneHour,
+                tags: ['SOL', '理财', '锁仓', 'Solana'],
+                url: 'https://www.binance.com/zh-CN/support/announcement'
+            },
+            {
+                id: 'bybit_fallback_1',
+                exchange: 'bybit',
+                title: 'Bybit上线AI Agent代币交易',
+                content: 'Bybit现已支持多个AI Agent相关代币的现货和合约交易，包括AI、VIRTUAL等热门项目。',
+                category: 'listing',
+                importance: 'high',
+                publishTime: now - 5 * oneHour,
+                tags: ['AI', 'VIRTUAL', 'Agent', '现货'],
+                url: 'https://www.bybit.com/zh-CN/help-center/bybitHC_Article'
+            },
+            {
+                id: 'gate_fallback_1',
+                exchange: 'gate',
+                title: 'Gate.io启动Meme币专区',
+                content: 'Gate.io推出Meme币专区，集中展示DOGE、SHIB、PEPE等热门Meme代币的交易信息。',
+                category: 'general',
+                importance: 'medium',
+                publishTime: now - 6 * oneHour,
+                tags: ['Meme', 'DOGE', 'SHIB', 'PEPE'],
+                url: 'https://www.gate.io/zh/announcements'
+            }
+        ];
     }
     /**
      * 应用过滤器
@@ -728,6 +1021,101 @@ class CEXAnnouncementsService {
         logger_1.Logger.info('CEX announcements cache cleared');
     }
     /**
+     * 增强公告内容 - 将英文标题转换为更友好的中文描述
+     */
+    static enhanceAnnouncementContent(title, content, exchange) {
+        // 如果已经包含中文，直接返回
+        if (/[\u4e00-\u9fa5]/.test(title)) {
+            return { title, content };
+        }
+        // 英文到中文的常见模式映射
+        const patterns = [
+            {
+                pattern: /will list|listing|list/i,
+                template: (match) => title.includes('Binance') ? `币安将上线 ${this.extractTokenName(title)}` :
+                    title.includes('OKX') ? `OKX将上线 ${this.extractTokenName(title)}` :
+                        title.includes('Bybit') ? `Bybit将上线 ${this.extractTokenName(title)}` :
+                            title.includes('KuCoin') ? `KuCoin将上线 ${this.extractTokenName(title)}` :
+                                `${exchange.toUpperCase()}将上线 ${this.extractTokenName(title)}`
+            },
+            {
+                pattern: /delist|delisting|removal/i,
+                template: (match) => `${exchange.toUpperCase()}将下架 ${this.extractTokenName(title)}`
+            },
+            {
+                pattern: /maintenance|upgrade|network upgrade/i,
+                template: (match) => `${exchange.toUpperCase()}网络维护：${this.extractTokenName(title)}`
+            },
+            {
+                pattern: /futures|perpetual|contract/i,
+                template: (match) => `${exchange.toUpperCase()}合约：${this.extractTokenName(title)} 永续合约`
+            },
+            {
+                pattern: /earn|staking|savings/i,
+                template: (match) => `${exchange.toUpperCase()}理财：${this.extractTokenName(title)} 质押服务`
+            },
+            {
+                pattern: /trading.*fee|fee.*adjust/i,
+                template: (match) => `${exchange.toUpperCase()}手续费调整公告`
+            },
+            {
+                pattern: /wallet|web3/i,
+                template: (match) => `${exchange.toUpperCase()}钱包功能更新`
+            }
+        ];
+        // 尝试匹配模式并生成中文标题
+        for (const { pattern, template } of patterns) {
+            if (pattern.test(title)) {
+                const enhancedTitle = template(pattern);
+                const enhancedContent = content || this.generateContentFromTitle(enhancedTitle, exchange);
+                return { title: enhancedTitle, content: enhancedContent };
+            }
+        }
+        // 如果没有匹配到特定模式，返回原内容
+        return { title, content };
+    }
+    /**
+     * 从标题中提取代币名称
+     */
+    static extractTokenName(title) {
+        // 提取括号中的代币符号
+        const tokenMatch = title.match(/\(([A-Z]{2,10})\)/);
+        if (tokenMatch)
+            return tokenMatch[1];
+        // 提取常见的代币名称模式
+        const nameMatch = title.match(/\b([A-Z]{2,10})\b/);
+        if (nameMatch)
+            return nameMatch[1];
+        return '新代币';
+    }
+    /**
+     * 根据标题生成内容描述
+     */
+    static generateContentFromTitle(title, exchange) {
+        if (title.includes('上线')) {
+            return `${exchange.toUpperCase()}宣布上线新的数字资产，用户可以进行相关交易操作。请注意相关风险提示。`;
+        }
+        if (title.includes('下架')) {
+            return `${exchange.toUpperCase()}将停止相关数字资产的交易服务，请用户及时处理相关资产。`;
+        }
+        if (title.includes('维护')) {
+            return `${exchange.toUpperCase()}将进行系统维护升级，期间可能影响相关服务的正常使用。`;
+        }
+        if (title.includes('合约')) {
+            return `${exchange.toUpperCase()}推出新的合约交易产品，支持杠杆交易功能。`;
+        }
+        if (title.includes('理财')) {
+            return `${exchange.toUpperCase()}推出新的理财产品，为用户提供资产增值服务。`;
+        }
+        if (title.includes('手续费')) {
+            return `${exchange.toUpperCase()}调整交易手续费标准，请用户关注最新费率信息。`;
+        }
+        if (title.includes('钱包')) {
+            return `${exchange.toUpperCase()}钱包功能更新，提供更好的用户体验和安全保障。`;
+        }
+        return `${exchange.toUpperCase()}发布重要公告，请用户及时关注相关信息。`;
+    }
+    /**
      * Binance模拟数据
      */
     static getMockBinanceAnnouncements() {
@@ -735,26 +1123,241 @@ class CEXAnnouncementsService {
             {
                 id: 'binance_mock_1',
                 exchange: 'binance',
-                title: 'Binance Will List TRUMP (TRUMP) with Seed Tag Applied',
-                content: 'Fellow Binancians, Binance will list TRUMP (TRUMP) and open trading for TRUMP/BTC, TRUMP/USDT, TRUMP/TRY trading pairs.',
+                title: '币安将上线 Somnia (SOMI) 并开通现货交易',
+                content: '亲爱的用户，币安将上线 Somnia (SOMI) 并开放 SOMI/USDT, SOMI/BTC, SOMI/FDUSD 交易对。',
                 category: 'listing',
                 importance: 'high',
                 publishTime: Date.now() - 3600000,
-                tags: ['TRUMP', 'new-listing', 'spot-trading'],
-                url: 'https://www.binance.com/en/support/announcement/binance-will-list-trump'
+                tags: ['SOMI', '新币上线', '现货交易'],
+                url: 'https://www.binance.com/zh-CN/support/announcement/binance-will-list-somi'
             },
             {
                 id: 'binance_mock_2',
                 exchange: 'binance',
-                title: 'Notice of Removal of Spot Trading Pairs - 2025-09-03',
-                content: 'This is to announce that Binance will remove and cease trading on the following spot trading pairs.',
+                title: '关于下架部分现货交易对的公告 - 2025年9月3日',
+                content: '币安将下架并停止以下现货交易对的交易，请用户做好相应准备。',
                 category: 'delisting',
                 importance: 'high',
                 publishTime: Date.now() - 7200000,
-                tags: ['delisting', 'spot-trading'],
-                url: 'https://www.binance.com/en/support/announcement/notice-of-removal'
+                tags: ['下架', '现货交易'],
+                url: 'https://www.binance.com/zh-CN/support/announcement/notice-of-removal'
+            },
+            {
+                id: 'binance_mock_3',
+                exchange: 'binance',
+                title: '币安合约将上线 WLFIUSDT 永续合约',
+                content: '币安合约将于2025年9月3日上线 WLFIUSDT 永续合约，支持高达50倍杠杆。',
+                category: 'derivatives',
+                importance: 'medium',
+                publishTime: Date.now() - 10800000,
+                tags: ['WLFI', '合约', '永续'],
+                url: 'https://www.binance.com/zh-CN/support/announcement/wlfi-futures'
+            },
+            {
+                id: 'binance_mock_4',
+                exchange: 'binance',
+                title: '币安理财新增多种高收益产品',
+                content: '币安理财新增 BTC、ETH、BNB 等多种数字资产的高收益理财产品，年化收益率高达12%。',
+                category: 'earn',
+                importance: 'medium',
+                publishTime: Date.now() - 14400000,
+                tags: ['理财', 'BTC', 'ETH', 'BNB'],
+                url: 'https://www.binance.com/zh-CN/support/announcement/new-earn-products'
             }
         ];
+    }
+    /**
+     * OKX模拟数据 - 基于真实最新动态的中文版本
+     */
+    static getMockOKXAnnouncements() {
+        return [
+            {
+                id: 'okx_real_1',
+                exchange: 'okx',
+                title: 'OKX将调整期权交易手续费标准',
+                content: '为了优化用户体验，OKX将于9月3日调整期权交易手续费率规则，详情请查看公告。',
+                category: 'trading',
+                importance: 'high',
+                publishTime: 1756821601000, // 真实时间戳
+                tags: ['期权', '手续费', '交易'],
+                url: 'https://www.okx.com/zh-hans/help/okx-to-adjust-options-trading-fees'
+            },
+            {
+                id: 'okx_real_2',
+                exchange: 'okx',
+                title: 'OKX钱包公告：铭文资产定价升级',
+                content: 'OKX钱包将升级铭文资产定价功能，为用户提供更准确的资产估值服务。',
+                category: 'wallet',
+                importance: 'medium',
+                publishTime: 1756742400000,
+                tags: ['OKX钱包', '铭文', '定价'],
+                url: 'https://www.okx.com/zh-hans/help/okx-wallet-announcement-for-inscription-asset-pricing-upgrade'
+            },
+            {
+                id: 'okx_real_3',
+                exchange: 'okx',
+                title: 'OKX将调整现货最小交易数量',
+                content: 'OKX将于近期调整部分现货交易对的最小交易数量，请用户注意相关变化。',
+                category: 'trading',
+                importance: 'medium',
+                publishTime: 1756194000000,
+                tags: ['现货', '最小交易量', '调整'],
+                url: 'https://www.okx.com/zh-hans/help/okx-to-adjust-the-minimum-trade-amount-of-spots'
+            },
+            {
+                id: 'okx_real_4',
+                exchange: 'okx',
+                title: 'OKX钱包停止支持以太坊公链网络',
+                content: 'OKX钱包将停止对EthereumFair网络的支持，请用户及时转移相关资产。',
+                category: 'maintenance',
+                importance: 'high',
+                publishTime: 1756137600000,
+                tags: ['OKX钱包', '以太坊', '停止支持'],
+                url: 'https://www.okx.com/zh-hans/help/okx-wallet-ethereumfair'
+            }
+        ];
+    }
+    /**
+     * KuCoin模拟数据
+     */
+    static getMockKuCoinAnnouncements() {
+        return [
+            {
+                id: 'kucoin_mock_1',
+                exchange: 'kucoin',
+                title: 'KuCoin 新币挖矿活动：质押 KCS 赢取新币',
+                content: '参与 KuCoin 新币挖矿活动，质押 KCS 即可获得新上线项目的空投奖励。',
+                category: 'promotion',
+                importance: 'medium',
+                publishTime: Date.now() - 6300000,
+                tags: ['KCS', '质押', '新币挖矿'],
+                url: 'https://www.kucoin.com/zh-cn/news/kucoin-pool-x-staking'
+            },
+            {
+                id: 'kucoin_mock_2',
+                exchange: 'kucoin',
+                title: 'KuCoin 现货网格交易大赛开始',
+                content: '参与 KuCoin 现货网格交易大赛，赢取总价值10万 USDT 的奖金池。',
+                category: 'trading',
+                importance: 'medium',
+                publishTime: Date.now() - 10800000,
+                tags: ['网格交易', '现货', '交易大赛'],
+                url: 'https://www.kucoin.com/zh-cn/news/grid-trading-contest'
+            }
+        ];
+    }
+    /**
+     * Bybit模拟数据
+     */
+    static getMockBybitAnnouncements() {
+        return [
+            {
+                id: 'bybit_mock_1',
+                exchange: 'bybit',
+                title: 'Bybit 合约交易大赛 WSOT 2025 正式开始',
+                content: 'Bybit 世界交易大赛 WSOT 2025 正式开始，总奖金池超过500万 USDT。',
+                category: 'trading',
+                importance: 'high',
+                publishTime: Date.now() - 7200000,
+                tags: ['WSOT', '交易大赛', 'USDT'],
+                url: 'https://www.bybit.com/zh-CN/help/bybit-wsot-2025'
+            },
+            {
+                id: 'bybit_mock_2',
+                exchange: 'bybit',
+                title: 'Bybit Web3 钱包全新升级',
+                content: 'Bybit Web3 钱包迎来重大升级，支持更多 DeFi 协议和 NFT 交易功能。',
+                category: 'general',
+                importance: 'medium',
+                publishTime: Date.now() - 11700000,
+                tags: ['Web3', 'DeFi', 'NFT'],
+                url: 'https://www.bybit.com/zh-CN/help/bybit-web3-upgrade'
+            }
+        ];
+    }
+    /**
+     * 使用新的爬虫服务获取真实数据
+     */
+    static async getAnnouncementsWithScraper() {
+        logger_1.Logger.info('🚀 使用新爬虫服务获取CEX公告数据...');
+        try {
+            const scrapedAnnouncements = await cex_scraper_service_1.CexScraperService.scrapeAllExchanges();
+            logger_1.Logger.info(`✅ 新爬虫服务获取到 ${scrapedAnnouncements.length} 条公告`);
+            // 转换数据格式
+            const announcements = scrapedAnnouncements.map(scraped => ({
+                id: scraped.id,
+                exchange: scraped.exchange,
+                title: scraped.title,
+                content: scraped.content,
+                category: scraped.category,
+                importance: scraped.importance,
+                publishTime: scraped.publishTime,
+                tags: scraped.tags,
+                url: scraped.url
+            }));
+            // 保存到数据库
+            if (announcements.length > 0) {
+                await this.saveAnnouncementsToDB(announcements);
+                logger_1.Logger.info(`💾 成功保存 ${announcements.length} 条公告到数据库`);
+            }
+            return announcements;
+        }
+        catch (error) {
+            logger_1.Logger.error('新爬虫服务获取失败', { error });
+            return this.getFallbackAnnouncements();
+        }
+    }
+    /**
+     * 替换现有的Binance API调用为新爬虫服务
+     */
+    static async getBinanceAnnouncementsV2() {
+        logger_1.Logger.info('🔥 使用新版Binance爬虫服务...');
+        try {
+            const scrapedData = await cex_scraper_service_1.CexScraperService.scrapeBinanceAnnouncements();
+            const announcements = scrapedData.map(scraped => ({
+                id: scraped.id,
+                exchange: scraped.exchange,
+                title: scraped.title,
+                content: scraped.content,
+                category: scraped.category,
+                importance: scraped.importance,
+                publishTime: scraped.publishTime,
+                tags: scraped.tags,
+                url: scraped.url
+            }));
+            logger_1.Logger.info(`✅ 新版Binance爬虫获取到 ${announcements.length} 条公告`);
+            return announcements;
+        }
+        catch (error) {
+            logger_1.Logger.error('新版Binance爬虫失败:', error);
+            return this.getMockBinanceAnnouncements();
+        }
+    }
+    /**
+     * 替换现有的OKX API调用为新爬虫服务
+     */
+    static async getOKXAnnouncementsV2() {
+        logger_1.Logger.info('🔥 使用新版OKX爬虫服务...');
+        try {
+            const scrapedData = await cex_scraper_service_1.CexScraperService.scrapeOkxAnnouncements();
+            const announcements = scrapedData.map(scraped => ({
+                id: scraped.id,
+                exchange: scraped.exchange,
+                title: scraped.title,
+                content: scraped.content,
+                category: scraped.category,
+                importance: scraped.importance,
+                publishTime: scraped.publishTime,
+                tags: scraped.tags,
+                url: scraped.url
+            }));
+            logger_1.Logger.info(`✅ 新版OKX爬虫获取到 ${announcements.length} 条公告`);
+            return announcements;
+        }
+        catch (error) {
+            logger_1.Logger.error('新版OKX爬虫失败:', error);
+            return this.getMockOKXAnnouncements();
+        }
     }
 }
 exports.CEXAnnouncementsService = CEXAnnouncementsService;

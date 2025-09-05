@@ -10,7 +10,7 @@ export declare class SchedulerService {
      */
     static stop(): void;
     /**
-     * Schedule automatic capacity updates every 4 hours
+     * Schedule automatic capacity updates every 10 minutes
      */
     private static scheduleCapacityUpdates;
     /**
@@ -65,6 +65,30 @@ export declare class SchedulerService {
         stats?: {
             totalFeeds: number;
             updateTime: string;
+        };
+    }>;
+    /**
+     * Schedule CEX announcements updates every 5 minutes
+     */
+    private static scheduleCEXAnnouncementsUpdates;
+    /**
+     * Update CEX announcements from all supported exchanges
+     */
+    private static updateCEXAnnouncements;
+    /**
+     * Schedule daily rewards recording every day at midnight (00:00 UTC)
+     */
+    private static scheduleDailyRewardsRecording;
+    /**
+     * Manually trigger daily rewards recording
+     */
+    static triggerDailyRewardsRecording(): Promise<{
+        success: boolean;
+        message: string;
+        stats?: {
+            date: string;
+            processedUsers: number;
+            totalRecords: number;
         };
     }>;
     /**

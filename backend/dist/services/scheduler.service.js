@@ -9,6 +9,9 @@ const logger_1 = require("@/utils/logger");
 const external_api_service_1 = require("@/services/external-api.service");
 const exchange_symbols_service_1 = require("@/services/exchange-symbols.service");
 const news_feeds_service_1 = require("@/services/news-feeds.service");
+const cex_announcements_service_1 = require("@/services/cex-announcements.service");
+const websocket_service_1 = require("@/services/websocket.service");
+const daily_rewards_service_1 = require("@/services/daily-rewards.service");
 const database_1 = require("@/services/database");
 class SchedulerService {
     /**
@@ -20,7 +23,7 @@ class SchedulerService {
             return;
         }
         logger_1.Logger.info('Initializing scheduler service...');
-        // Update node capacities every 4 hours
+        // Update node capacities every 10 minutes  
         this.scheduleCapacityUpdates();
         // Clean up old performance data every day at 2 AM
         this.schedulePerformanceCleanup();
@@ -30,6 +33,10 @@ class SchedulerService {
         this.scheduleExchangeSymbolsUpdates();
         // Update news feeds every 3 minutes
         this.scheduleNewsFeedsUpdates();
+        // Update CEX announcements every 5 minutes
+        this.scheduleCEXAnnouncementsUpdates();
+        // Record daily rewards every day at midnight (00:00)
+        this.scheduleDailyRewardsRecording();
         this.isRunning = true;
         logger_1.Logger.info('Scheduler service initialized successfully');
     }
@@ -47,21 +54,30 @@ class SchedulerService {
         logger_1.Logger.info('Scheduler service stopped');
     }
     /**
-     * Schedule automatic capacity updates every 4 hours
+     * Schedule automatic capacity updates every 10 minutes
      */
     static scheduleCapacityUpdates() {
-        const task = node_cron_1.default.schedule('0 */4 * * *', async () => {
+        const task = node_cron_1.default.schedule('*/10 * * * *', async () => {
             try {
                 logger_1.Logger.info('Starting scheduled capacity update...');
-                // Get all users with nodes that need capacity updates
+                // Get all users with nodes that need capacity updates OR have Filecoin nodes (for earnings update)
                 const users = await database_1.prisma.user.findMany({
                     where: {
                         nodes: {
                             some: {
                                 OR: [
+                                    // Nodes without capacity
                                     { capacity: null },
                                     { capacity: '' },
-                                    { capacity: 'Querying...' }
+                                    { capacity: 'Querying...' },
+                                    // All Filecoin nodes (for regular earnings updates)
+                                    {
+                                        project: {
+                                            name: {
+                                                contains: 'Filecoin'
+                                            }
+                                        }
+                                    }
                                 ]
                             }
                         }
@@ -93,7 +109,7 @@ class SchedulerService {
                         totalFailed++;
                     }
                 }
-                logger_1.Logger.info('Scheduled capacity update completed', {
+                logger_1.Logger.info('Scheduled capacity update completed (10min interval)', {
                     totalUsers: users.length,
                     totalUpdated,
                     totalFailed
@@ -110,7 +126,7 @@ class SchedulerService {
         });
         task.start();
         this.tasks.set('capacity-updates', task);
-        logger_1.Logger.info('Scheduled capacity updates every 4 hours');
+        logger_1.Logger.info('Scheduled capacity updates every 10 minutes');
     }
     /**
      * Schedule cleanup of old performance data every day at 2 AM
@@ -233,9 +249,18 @@ class SchedulerService {
                     nodes: {
                         some: {
                             OR: [
+                                // Nodes without capacity
                                 { capacity: null },
                                 { capacity: '' },
-                                { capacity: 'Querying...' }
+                                { capacity: 'Querying...' },
+                                // All Filecoin nodes (for regular earnings updates)
+                                {
+                                    project: {
+                                        name: {
+                                            contains: 'Filecoin'
+                                        }
+                                    }
+                                }
                             ]
                         }
                     }
@@ -380,6 +405,148 @@ class SchedulerService {
             return {
                 success: false,
                 message: `News feeds update failed: ${error.message}`
+            };
+        }
+    }
+    /**
+     * Schedule CEX announcements updates every 5 minutes
+     */
+    static scheduleCEXAnnouncementsUpdates() {
+        const task = node_cron_1.default.schedule('*/5 * * * *', async () => {
+            try {
+                logger_1.Logger.info('Starting CEX announcements update task...');
+                await this.updateCEXAnnouncements();
+                logger_1.Logger.info('CEX announcements update task completed successfully');
+            }
+            catch (error) {
+                logger_1.Logger.error('CEX announcements update task failed', { error });
+            }
+        }, {
+            scheduled: true,
+            name: 'cex-announcements-update'
+        });
+        this.tasks.set('cex-announcements-update', task);
+        logger_1.Logger.info('Scheduled CEX announcements updates every 5 minutes');
+    }
+    /**
+     * Update CEX announcements from all supported exchanges
+     */
+    static async updateCEXAnnouncements() {
+        try {
+            // Get count before update to compare
+            const beforeCount = await database_1.prisma.cEXAnnouncement.count();
+            // Clear cache to force fresh data
+            cex_announcements_service_1.CEXAnnouncementsService.clearCache();
+            // Update announcements from all exchanges in parallel
+            const [binanceData, okxData, bybitData, kucoinData] = await Promise.allSettled([
+                cex_announcements_service_1.CEXAnnouncementsService.getBinanceAnnouncements(),
+                cex_announcements_service_1.CEXAnnouncementsService.getOKXAnnouncements(),
+                cex_announcements_service_1.CEXAnnouncementsService.getBybitAnnouncements(),
+                cex_announcements_service_1.CEXAnnouncementsService.getKuCoinAnnouncements()
+            ]);
+            // Count successful updates
+            let totalUpdated = 0;
+            const results = {
+                binance: binanceData.status === 'fulfilled' ? binanceData.value.length : 0,
+                okx: okxData.status === 'fulfilled' ? okxData.value.length : 0,
+                bybit: bybitData.status === 'fulfilled' ? bybitData.value.length : 0,
+                kucoin: kucoinData.status === 'fulfilled' ? kucoinData.value.length : 0,
+            };
+            totalUpdated = Object.values(results).reduce((sum, count) => sum + count, 0);
+            // Get count after update
+            const afterCount = await database_1.prisma.cEXAnnouncement.count();
+            const newAnnouncementsCount = afterCount - beforeCount;
+            logger_1.Logger.info(`Updated CEX announcements: ${JSON.stringify(results)} (Total: ${totalUpdated})`);
+            // Broadcast update to WebSocket clients if there are new announcements
+            if (newAnnouncementsCount > 0) {
+                // Get the latest announcements to broadcast
+                const latestAnnouncements = await cex_announcements_service_1.CEXAnnouncementsService.getAnnouncementsFromDB({
+                    limit: newAnnouncementsCount
+                });
+                websocket_service_1.WebSocketService.broadcastCEXAnnouncements(latestAnnouncements);
+                websocket_service_1.WebSocketService.broadcastAnnouncementUpdate(`发现 ${newAnnouncementsCount} 条新公告`, { newCount: newAnnouncementsCount });
+                logger_1.Logger.info(`Broadcasted ${newAnnouncementsCount} new announcements via WebSocket`);
+            }
+            return {
+                success: true,
+                message: `Successfully updated ${totalUpdated} announcements`,
+                data: { ...results, newCount: newAnnouncementsCount }
+            };
+        }
+        catch (error) {
+            logger_1.Logger.error('Failed to update CEX announcements', { error });
+            return {
+                success: false,
+                message: `CEX announcements update failed: ${error.message}`
+            };
+        }
+    }
+    /**
+     * Schedule daily rewards recording every day at midnight (00:00 UTC)
+     */
+    static scheduleDailyRewardsRecording() {
+        const task = node_cron_1.default.schedule('0 0 * * *', async () => {
+            try {
+                logger_1.Logger.info('Starting scheduled daily rewards recording...');
+                await daily_rewards_service_1.DailyRewardsService.recordDailyRewards();
+                // Also cleanup old rewards (older than 30 days) weekly
+                const today = new Date();
+                if (today.getDay() === 0) { // Sunday
+                    await daily_rewards_service_1.DailyRewardsService.cleanupOldRewards(30);
+                }
+                logger_1.Logger.info('Scheduled daily rewards recording completed');
+            }
+            catch (error) {
+                logger_1.Logger.error('Error in scheduled daily rewards recording', {
+                    error: error.message
+                });
+            }
+        }, {
+            scheduled: false,
+            timezone: 'UTC'
+        });
+        task.start();
+        this.tasks.set('daily-rewards-recording', task);
+        logger_1.Logger.info('Scheduled daily rewards recording every day at midnight UTC');
+    }
+    /**
+     * Manually trigger daily rewards recording
+     */
+    static async triggerDailyRewardsRecording() {
+        try {
+            logger_1.Logger.info('Manual daily rewards recording triggered');
+            const startTime = Date.now();
+            await daily_rewards_service_1.DailyRewardsService.recordDailyRewards();
+            const endTime = Date.now();
+            const today = new Date().toISOString().split('T')[0];
+            const totalRecords = await database_1.prisma.dailyReward.count({
+                where: { date: today }
+            });
+            // Get unique user count for today
+            const processedUsers = await database_1.prisma.dailyReward.count({
+                where: { date: today },
+                distinct: ['userId']
+            });
+            const stats = {
+                date: today,
+                processedUsers,
+                totalRecords,
+                updateTime: `${(endTime - startTime) / 1000}s`
+            };
+            logger_1.Logger.info('Manual daily rewards recording completed', stats);
+            return {
+                success: true,
+                message: `Daily rewards recording completed: ${totalRecords} records for ${processedUsers} users`,
+                stats
+            };
+        }
+        catch (error) {
+            logger_1.Logger.error('Error in manual daily rewards recording', {
+                error: error.message
+            });
+            return {
+                success: false,
+                message: `Daily rewards recording failed: ${error.message}`
             };
         }
     }

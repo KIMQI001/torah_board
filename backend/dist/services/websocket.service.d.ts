@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 export interface WebSocketMessage {
-    type: 'node_update' | 'capacity_update' | 'performance_update' | 'earnings_update' | 'system_status';
+    type: 'node_update' | 'capacity_update' | 'performance_update' | 'earnings_update' | 'system_status' | 'cex_announcements' | 'announcement_update';
     data: any;
     timestamp: string;
     userId?: string;
@@ -61,6 +61,14 @@ export declare class WebSocketService {
      * Send earnings update notification
      */
     static notifyEarningsUpdate(userId: string, earnings: any): void;
+    /**
+     * Broadcast new CEX announcements to all clients
+     */
+    static broadcastCEXAnnouncements(announcements: any[]): void;
+    /**
+     * Broadcast announcement update to all clients
+     */
+    static broadcastAnnouncementUpdate(message: string, data?: any): void;
     /**
      * Get total number of active connections
      */

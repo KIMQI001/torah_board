@@ -42,6 +42,11 @@ router.post('/realtime/reconnect', spot_controller_1.SpotController.reconnectWeb
 router.get('/favorites', spot_controller_1.SpotController.getFavoriteSymbols);
 router.post('/favorites', spot_controller_1.SpotController.addFavoriteSymbol);
 router.delete('/favorites/:symbol', spot_controller_1.SpotController.removeFavoriteSymbol);
+// 爬虫测试路由（用于测试新的真实数据爬取功能）
+router.get('/scraper/test', spot_controller_1.SpotController.testCexScraper);
+router.get('/scraper/binance', spot_controller_1.SpotController.testBinanceScraper);
+router.get('/scraper/okx', spot_controller_1.SpotController.testOkxScraper);
+router.get('/scraper/web', spot_controller_1.SpotController.testWebScraper);
 // 交易所币种数据库路由
 router.get('/symbols/search', spot_controller_1.SpotController.searchExchangeSymbols);
 router.get('/symbols/all', spot_controller_1.SpotController.getAllExchangeSymbols);

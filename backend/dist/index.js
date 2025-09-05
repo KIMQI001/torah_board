@@ -22,6 +22,8 @@ const roi_routes_1 = require("@/routes/roi.routes");
 const dashboard_routes_1 = require("@/routes/dashboard.routes");
 const dao_routes_1 = __importDefault(require("@/routes/dao.routes"));
 const spot_routes_1 = require("@/routes/spot.routes");
+const airdrop_routes_1 = require("@/routes/airdrop.routes");
+const daily_rewards_routes_1 = require("@/routes/daily-rewards.routes");
 // Import services
 const scheduler_service_1 = require("@/services/scheduler.service");
 const websocket_service_1 = require("@/services/websocket.service");
@@ -35,7 +37,7 @@ app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
     origin: process.env.NODE_ENV === 'production'
         ? ['https://your-frontend-domain.com']
-        : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 'http://localhost:3005', 'http://localhost:3006'],
+        : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 'http://localhost:3004', 'http://localhost:3005', 'http://localhost:3006'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -106,6 +108,8 @@ app.use(`/api/${API_VERSION}/nodes`, nodes_routes_1.nodesRoutes);
 app.use(`/api/${API_VERSION}/roi`, roi_routes_1.roiRoutes);
 app.use(`/api/${API_VERSION}/dashboard`, dashboard_routes_1.dashboardRoutes);
 app.use(`/api/${API_VERSION}/spot`, spot_routes_1.spotRoutes);
+app.use(`/api/${API_VERSION}/airdrop`, airdrop_routes_1.airdropRoutes);
+app.use(`/api/${API_VERSION}/daily-rewards`, daily_rewards_routes_1.dailyRewardsRoutes);
 app.use(`/api/${API_VERSION}`, dao_routes_1.default);
 // 404 handler
 app.use('*', (req, res) => {

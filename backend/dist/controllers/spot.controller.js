@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SpotController = void 0;
 const response_1 = require("@/utils/response");
@@ -257,6 +290,100 @@ class SpotController {
         catch (error) {
             logger_1.Logger.error('Failed to fetch token announcements', { error, symbol: req.params.symbol });
             response_1.ResponseUtil.error(res, 'Failed to fetch token announcements');
+        }
+    }
+    /**
+     * 测试新爬虫服务 - 获取真实CEX公告
+     */
+    static async testCexScraper(req, res) {
+        try {
+            logger_1.Logger.info('🔥 开始测试新爬虫服务...');
+            // 使用新的爬虫服务获取数据
+            const announcements = await cex_announcements_service_1.CEXAnnouncementsService.getAnnouncementsWithScraper();
+            response_1.ResponseUtil.success(res, {
+                total: announcements.length,
+                announcements,
+                message: '新爬虫服务测试成功',
+                timestamp: Date.now()
+            }, 'CEX scraper test completed successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('CEX爬虫服务测试失败', { error });
+            response_1.ResponseUtil.error(res, 'CEX scraper test failed');
+        }
+    }
+    /**
+     * 测试Binance新爬虫
+     */
+    static async testBinanceScraper(req, res) {
+        try {
+            logger_1.Logger.info('🚀 测试Binance新版爬虫...');
+            const announcements = await cex_announcements_service_1.CEXAnnouncementsService.getBinanceAnnouncementsV2();
+            response_1.ResponseUtil.success(res, {
+                exchange: 'binance',
+                total: announcements.length,
+                announcements,
+                message: 'Binance新版爬虫测试成功',
+                timestamp: Date.now()
+            }, 'Binance scraper test completed successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('Binance爬虫测试失败', { error });
+            response_1.ResponseUtil.error(res, 'Binance scraper test failed');
+        }
+    }
+    /**
+     * 测试OKX新爬虫
+     */
+    static async testOkxScraper(req, res) {
+        try {
+            logger_1.Logger.info('🚀 测试OKX新版爬虫...');
+            const announcements = await cex_announcements_service_1.CEXAnnouncementsService.getOKXAnnouncementsV2();
+            response_1.ResponseUtil.success(res, {
+                exchange: 'okx',
+                total: announcements.length,
+                announcements,
+                message: 'OKX新版爬虫测试成功',
+                timestamp: Date.now()
+            }, 'OKX scraper test completed successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('OKX爬虫测试失败', { error });
+            response_1.ResponseUtil.error(res, 'OKX scraper test failed');
+        }
+    }
+    /**
+     * 测试专门的网页爬虫服务
+     */
+    static async testWebScraper(req, res) {
+        try {
+            logger_1.Logger.info('🕷️ 测试专门网页爬虫服务...');
+            // 动态导入网页爬虫服务
+            const { WebScraperService } = await Promise.resolve().then(() => __importStar(require('../services/web-scraper.service')));
+            const announcements = await WebScraperService.scrapeAllWeb();
+            // 转换为标准格式
+            const formattedAnnouncements = announcements.map(scraped => ({
+                id: scraped.id,
+                exchange: scraped.exchange,
+                title: scraped.title,
+                content: scraped.content,
+                category: scraped.category,
+                importance: scraped.importance,
+                publishTime: scraped.publishTime,
+                tags: scraped.tags,
+                url: scraped.url
+            }));
+            response_1.ResponseUtil.success(res, {
+                total: formattedAnnouncements.length,
+                announcements: formattedAnnouncements,
+                message: '专门网页爬虫测试成功',
+                timestamp: Date.now(),
+                method: '网页HTML解析'
+            }, 'Web scraper test completed successfully');
+        }
+        catch (error) {
+            logger_1.Logger.error('网页爬虫测试失败', { error });
+            response_1.ResponseUtil.error(res, 'Web scraper test failed');
         }
     }
     /**

@@ -46,6 +46,22 @@ export declare class SpotController {
      */
     static getTokenAnnouncements(req: AuthenticatedRequest, res: Response): Promise<void>;
     /**
+     * 测试新爬虫服务 - 获取真实CEX公告
+     */
+    static testCexScraper(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 测试Binance新爬虫
+     */
+    static testBinanceScraper(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 测试OKX新爬虫
+     */
+    static testOkxScraper(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
+     * 测试专门的网页爬虫服务
+     */
+    static testWebScraper(req: AuthenticatedRequest, res: Response): Promise<void>;
+    /**
      * 获取价格异常
      */
     static getPriceAnomalies(req: AuthenticatedRequest, res: Response): Promise<void>;

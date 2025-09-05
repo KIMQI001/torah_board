@@ -5,6 +5,7 @@ import { ExchangeSymbolsService } from '@/services/exchange-symbols.service';
 import { NewsFeedsService } from '@/services/news-feeds.service';
 import { CEXAnnouncementsService } from '@/services/cex-announcements.service';
 import { WebSocketService } from '@/services/websocket.service';
+import { DailyRewardsService } from '@/services/daily-rewards.service';
 import { prisma } from '@/services/database';
 
 export class SchedulerService {
@@ -39,6 +40,9 @@ export class SchedulerService {
 
     // Update CEX announcements every 5 minutes
     this.scheduleCEXAnnouncementsUpdates();
+
+    // Record daily rewards every day at midnight (00:00)
+    this.scheduleDailyRewardsRecording();
 
     this.isRunning = true;
     Logger.info('Scheduler service initialized successfully');
@@ -579,6 +583,95 @@ export class SchedulerService {
       return {
         success: false,
         message: `CEX announcements update failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Schedule daily rewards recording every day at midnight (00:00 UTC)
+   */
+  private static scheduleDailyRewardsRecording(): void {
+    const task = cron.schedule('0 0 * * *', async () => {
+      try {
+        Logger.info('Starting scheduled daily rewards recording...');
+        
+        await DailyRewardsService.recordDailyRewards();
+        
+        // Also cleanup old rewards (older than 30 days) weekly
+        const today = new Date();
+        if (today.getDay() === 0) { // Sunday
+          await DailyRewardsService.cleanupOldRewards(30);
+        }
+        
+        Logger.info('Scheduled daily rewards recording completed');
+      } catch (error) {
+        Logger.error('Error in scheduled daily rewards recording', {
+          error: error.message
+        });
+      }
+    }, {
+      scheduled: false,
+      timezone: 'UTC'
+    });
+
+    task.start();
+    this.tasks.set('daily-rewards-recording', task);
+    Logger.info('Scheduled daily rewards recording every day at midnight UTC');
+  }
+
+  /**
+   * Manually trigger daily rewards recording
+   */
+  static async triggerDailyRewardsRecording(): Promise<{
+    success: boolean;
+    message: string;
+    stats?: {
+      date: string;
+      processedUsers: number;
+      totalRecords: number;
+    };
+  }> {
+    try {
+      Logger.info('Manual daily rewards recording triggered');
+
+      const startTime = Date.now();
+      await DailyRewardsService.recordDailyRewards();
+      const endTime = Date.now();
+
+      const today = new Date().toISOString().split('T')[0];
+      const totalRecords = await prisma.dailyReward.count({
+        where: { date: today }
+      });
+
+      // Get unique user count for today
+      const processedUsers = await prisma.dailyReward.count({
+        where: { date: today },
+        distinct: ['userId']
+      });
+
+      const stats = {
+        date: today,
+        processedUsers,
+        totalRecords,
+        updateTime: `${(endTime - startTime) / 1000}s`
+      };
+
+      Logger.info('Manual daily rewards recording completed', stats);
+
+      return {
+        success: true,
+        message: `Daily rewards recording completed: ${totalRecords} records for ${processedUsers} users`,
+        stats
+      };
+
+    } catch (error) {
+      Logger.error('Error in manual daily rewards recording', {
+        error: error.message
+      });
+
+      return {
+        success: false,
+        message: `Daily rewards recording failed: ${error.message}`
       };
     }
   }
