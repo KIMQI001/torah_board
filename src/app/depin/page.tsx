@@ -39,40 +39,69 @@ export default function DePINPage() {
     apiDePINStore.syncAuthContext(isAuthenticated, user);
   }, [isAuthenticated, user]);
 
-  // 自动刷新 Filecoin 收益
+  // 自动刷新所有节点数据（包括 Capacity 和每日奖励）
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || storeState.nodes.length === 0) return;
     
-    const refreshFilecoinEarnings = async () => {
-      // 只刷新 Filecoin 节点数据
-      const filecoinNodes = storeState.nodes.filter(node => node.network.includes('Filecoin'));
-      if (filecoinNodes.length > 0) {
-        await apiDePINStore.refreshFilecoinEarnings();
-        setNotifications(prev => [
-          ...prev, 
-          `Filecoin 收益已刷新 - ${new Date().toLocaleTimeString()}`
-        ]);
+    const refreshAllNodesData = async () => {
+      try {
+        // 触发容量更新
+        const capacityResult = await apiDePINStore.triggerCapacityUpdate();
+        console.log('📊 容量更新结果:', capacityResult.message);
+        
+        // 等待后端处理完成后刷新数据
+        setTimeout(async () => {
+          await Promise.all([
+            apiDePINStore.refreshNodes(),     // 刷新节点数据
+            apiDePINStore.refreshDashboard(), // 刷新仪表板
+            apiDePINStore.refreshEarnings()   // 刷新收益数据
+          ]);
+        }, 2000);
+      } catch (error) {
+        console.error('自动刷新失败:', error);
       }
     };
     
-    // 每 5 分钟刷新一次 Filecoin 收益
-    const interval = setInterval(refreshFilecoinEarnings, 5 * 60 * 1000);
+    // 每 5 分钟刷新一次所有节点数据（后端每10分钟更新一次真实数据）
+    const interval = setInterval(refreshAllNodesData, 5 * 60 * 1000);
     
     // 立即执行一次
-    refreshFilecoinEarnings();
+    refreshAllNodesData();
     
     return () => clearInterval(interval);
   }, [isAuthenticated, storeState.nodes.length]);
 
 
   const handleRefresh = async () => {
-    await apiDePINStore.refreshAll();
-    setNotifications(prev => [...prev, `Data refreshed at ${new Date().toLocaleTimeString()}`]);
+    setNotifications(prev => [...prev, '正在刷新数据...']);
+    
+    try {
+      // 先触发容量更新
+      const capacityResult = await apiDePINStore.triggerCapacityUpdate();
+      console.log('📊 手动触发容量更新:', capacityResult.message);
+      
+      // 等待后端处理
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // 刷新所有数据
+      await apiDePINStore.refreshAll();
+      
+      setNotifications(prev => [...prev, `数据刷新完成 - ${new Date().toLocaleTimeString()}`]);
+    } catch (error) {
+      console.error('刷新失败:', error);
+      setNotifications(prev => [...prev, '数据刷新失败，请稍后重试']);
+    }
   };
 
   const handleTriggerCapacityUpdate = async () => {
     const result = await apiDePINStore.triggerCapacityUpdate();
     setNotifications(prev => [...prev, result.message]);
+    
+    // 2秒后自动刷新节点数据以显示更新结果
+    setTimeout(async () => {
+      await apiDePINStore.refreshNodes();
+      setNotifications(prev => [...prev, '节点数据已更新']);
+    }, 2000);
   };
 
   const handleDisconnectWallet = async () => {

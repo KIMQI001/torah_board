@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/hooks/use-auth';
 import { SimpleWalletModal } from './SimpleWalletModal';
 import { Loader2, Wallet } from 'lucide-react';
 
@@ -34,6 +34,13 @@ export function WalletButton({ className, variant = 'default' }: WalletButtonPro
 
   const getButtonText = () => {
     if (!mounted) return '加载中...';
+    
+    console.log('WalletButton状态:', { 
+      isAuthenticated, 
+      user, 
+      authLoading,
+      walletAddress: user?.walletAddress 
+    });
     
     if (authLoading) {
       return '认证中...';

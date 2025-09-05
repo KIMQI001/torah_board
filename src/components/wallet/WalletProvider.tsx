@@ -18,7 +18,7 @@ interface WalletProviderProps {
 export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
   const [mounted, setMounted] = React.useState(false);
 
-  // 清除可能损坏的 localStorage 数据
+  // 清除可能损坏的 localStorage 数据，但保留有效的钱包连接状态
   useEffect(() => {
     setMounted(true);
     if (typeof window !== 'undefined') {
@@ -26,7 +26,7 @@ export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
         const keys = ['walletName', 'walletAdapter'];
         keys.forEach(key => {
           const stored = localStorage.getItem(key);
-          if (stored && stored === 'undefined') {
+          if (stored && (stored === 'undefined' || stored === 'null')) {
             localStorage.removeItem(key);
             console.log(`Cleared invalid localStorage key: ${key}`);
           }
@@ -73,7 +73,11 @@ export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
 
   return (
     <ConnectionProvider endpoint={endpoint}>
-      <SolanaWalletProvider wallets={wallets} autoConnect={false}>
+      <SolanaWalletProvider 
+        wallets={wallets} 
+        autoConnect={true}
+        localStorageKey="solana-wallet"
+      >
         {children}
       </SolanaWalletProvider>
     </ConnectionProvider>

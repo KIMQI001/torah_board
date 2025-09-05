@@ -22,7 +22,7 @@ export class SchedulerService {
 
     Logger.info('Initializing scheduler service...');
 
-    // Update node capacities every 4 hours
+    // Update node capacities every 10 minutes  
     this.scheduleCapacityUpdates();
 
     // Clean up old performance data every day at 2 AM
@@ -61,22 +61,31 @@ export class SchedulerService {
   }
 
   /**
-   * Schedule automatic capacity updates every 4 hours
+   * Schedule automatic capacity updates every 10 minutes
    */
   private static scheduleCapacityUpdates(): void {
-    const task = cron.schedule('0 */4 * * *', async () => {
+    const task = cron.schedule('*/10 * * * *', async () => {
       try {
         Logger.info('Starting scheduled capacity update...');
         
-        // Get all users with nodes that need capacity updates
+        // Get all users with nodes that need capacity updates OR have Filecoin nodes (for earnings update)
         const users = await prisma.user.findMany({
           where: {
             nodes: {
               some: {
                 OR: [
+                  // Nodes without capacity
                   { capacity: null },
                   { capacity: '' },
-                  { capacity: 'Querying...' }
+                  { capacity: 'Querying...' },
+                  // All Filecoin nodes (for regular earnings updates)
+                  {
+                    project: {
+                      name: {
+                        contains: 'Filecoin'
+                      }
+                    }
+                  }
                 ]
               }
             }
@@ -113,7 +122,7 @@ export class SchedulerService {
           }
         }
 
-        Logger.info('Scheduled capacity update completed', {
+        Logger.info('Scheduled capacity update completed (10min interval)', {
           totalUsers: users.length,
           totalUpdated,
           totalFailed
@@ -131,7 +140,7 @@ export class SchedulerService {
 
     task.start();
     this.tasks.set('capacity-updates', task);
-    Logger.info('Scheduled capacity updates every 4 hours');
+    Logger.info('Scheduled capacity updates every 10 minutes');
   }
 
   /**
@@ -282,9 +291,18 @@ export class SchedulerService {
           nodes: {
             some: {
               OR: [
+                // Nodes without capacity
                 { capacity: null },
                 { capacity: '' },
-                { capacity: 'Querying...' }
+                { capacity: 'Querying...' },
+                // All Filecoin nodes (for regular earnings updates)
+                {
+                  project: {
+                    name: {
+                      contains: 'Filecoin'
+                    }
+                  }
+                }
               ]
             }
           }

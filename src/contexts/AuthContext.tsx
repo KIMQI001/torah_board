@@ -2,8 +2,8 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { Wallet } from '@solana/wallet-adapter-react';
 import { authApi, setAuthToken, getAuthToken, clearAuthToken } from '@/lib/api';
+import { saveWalletState, getWalletState, clearWalletState } from '@/lib/wallet-persistence';
 
 // 用户信息接口
 export interface User {
@@ -25,7 +25,7 @@ interface AuthState {
 
 // 认证方法接口
 interface AuthMethods {
-  signIn: (wallet: Wallet) => Promise<boolean>;
+  signIn: (wallet: any) => Promise<boolean>;
   signOut: () => void;
   refreshUser: () => Promise<void>;
   clearError: () => void;
@@ -66,7 +66,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   // 钱包签名认证
-  const signIn = async (wallet: Wallet): Promise<boolean> => {
+  const signIn = async (wallet: any): Promise<boolean> => {
     try {
       console.log('AuthContext: 开始认证流程');
       updateState({ isLoading: true, error: null });
@@ -144,6 +144,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // 4. 保存 token 和用户信息
       console.log('AuthContext: 保存认证信息...');
       setAuthToken(authData.token);
+      
+      // 保存钱包连接状态到本地存储
+      saveWalletState({
+        isConnected: true,
+        walletAddress: walletAddress,
+        walletName: wallet.adapter.name,
+        connectedAt: Date.now()
+      });
+      
       updateState({
         user: authData.user,
         isAuthenticated: true,
@@ -151,6 +160,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
 
       console.log('AuthContext: 认证成功完成');
+      console.log('AuthContext: 更新后的状态:', {
+        user: authData.user,
+        isAuthenticated: true,
+        walletAddress: authData.user?.walletAddress
+      });
       return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '认证失败';
@@ -169,6 +183,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // 退出登录
   const signOut = () => {
     clearAuthToken();
+    clearWalletState();
     updateState({
       user: null,
       isAuthenticated: false,
@@ -186,25 +201,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      // 开发模式：如果是开发token，直接创建模拟用户，不调用API
-      if (process.env.NODE_ENV === 'development' && token.startsWith('dev-token-')) {
-        console.log('🔧 AuthContext: 开发模式，使用模拟用户数据');
-        const mockUser: User = {
-          id: 'dev-user-001',
-          walletAddress: 'DevWallet' + Math.random().toString(36).substring(7),
-          publicKey: 'DevPublicKey' + Math.random().toString(36).substring(7),
-          balance: 1000,
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-        };
-        updateState({
-          user: mockUser,
-          isAuthenticated: true,
-          isLoading: false,
-        });
-        return;
-      }
-
       const userData = await authApi.verify();
       if (userData && userData.user) {
         updateState({
@@ -217,27 +213,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     } catch (error) {
       console.error('刷新用户信息失败:', error);
-      // 开发模式：即使API调用失败也保持认证状态
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔧 AuthContext: 开发模式，忽略API错误，保持认证状态');
-        const mockUser: User = {
-          id: 'dev-user-001',
-          walletAddress: 'DevWallet' + Math.random().toString(36).substring(7),
-          publicKey: 'DevPublicKey' + Math.random().toString(36).substring(7),
-          balance: 1000,
-          createdAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-        };
-        updateState({
-          user: mockUser,
-          isAuthenticated: true,
-          isLoading: false,
-        });
-      } else {
-        signOut();
-      }
+      // API验证失败，清除认证状态
+      console.log('🚫 API验证失败，清除认证状态');
+      signOut();
     }
   };
+
+  // 监听钱包状态变化 - 通过localStorage或其他方式
+  useEffect(() => {
+    // 检查是否有保存的钱包状态
+    const checkWalletState = () => {
+      const token = getAuthToken();
+      const walletState = getWalletState();
+      
+      if (token && walletState && !state.isAuthenticated) {
+        console.log('🔄 发现保存的钱包状态，尝试恢复认证...');
+        refreshUser();
+      }
+    };
+
+    checkWalletState();
+  }, []);
 
   // 初始化时检查现有 token
   useEffect(() => {
@@ -256,7 +252,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       
       if (token) {
-        // 如果存在有效token，验证它
+        // 如果存在有效token，尝试验证
+        console.log('🔄 发现认证token，开始验证...');
         await refreshUser();
       } else {
         // 没有token时，等待用户主动连接钱包
@@ -265,7 +262,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
 
-    initializeAuth();
+    // 少量延迟等待钱包提供程序初始化
+    const timer = setTimeout(initializeAuth, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   const contextValue: AuthContextType = {

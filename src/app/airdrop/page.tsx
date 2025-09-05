@@ -11,15 +11,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Gift, Calendar, CheckCircle, Clock, ExternalLink, Plus, Folder, X, Trash2 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { AirdropAPI, ActiveAirdrop, UserAirdropProject } from "@/services/api/airdrop.api";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function AirdropPage() {
   const { t } = useLanguage();
+  const { user, isAuthenticated } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 使用示例钱包地址，实际应用中应从用户认证获取
-  const DEMO_WALLET = "11111111111111111111111111111111";
+  // 获取真实的钱包地址，如果未连接则使用演示地址
+  const walletAddress = user?.walletAddress || "Demo_Wallet_Not_Connected";
 
   const [activeAirdrops, setActiveAirdrops] = useState<ActiveAirdrop[]>([]);
   const [userProjects, setUserProjects] = useState<UserAirdropProject[]>([]);
@@ -27,8 +29,14 @@ export default function AirdropPage() {
   useEffect(() => {
     setMounted(true);
     loadActiveAirdrops();
-    loadUserProjects();
   }, []);
+
+  // 当钱包地址变化时重新加载用户项目
+  useEffect(() => {
+    if (mounted) {
+      loadUserProjects();
+    }
+  }, [walletAddress, mounted]);
 
   // 加载活跃空投
   const loadActiveAirdrops = async () => {
@@ -47,13 +55,20 @@ export default function AirdropPage() {
 
   // 加载用户项目
   const loadUserProjects = async () => {
+    // 只有连接钱包后才加载用户项目
+    if (!isAuthenticated || !walletAddress || walletAddress === "Demo_Wallet_Not_Connected") {
+      setUserProjects([]);
+      return;
+    }
+    
     try {
       const result = await AirdropAPI.getUserAirdropProjects({ 
-        walletAddress: DEMO_WALLET 
+        walletAddress: walletAddress 
       });
       setUserProjects(result.data);
     } catch (err) {
       console.error('Failed to load user projects:', err);
+      setUserProjects([]);
     }
   };
 
@@ -125,7 +140,7 @@ export default function AirdropPage() {
     try {
       setLoading(true);
       await AirdropAPI.createUserAirdropProject({
-        walletAddress: DEMO_WALLET,
+        walletAddress: walletAddress,
         airdropId,
         project,
         chain,
@@ -224,7 +239,7 @@ export default function AirdropPage() {
             <Folder className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{completedAirdrops.length}</div>
+            <div className="text-2xl font-bold">{userProjects.length}</div>
             <p className="text-xs text-muted-foreground">总项目数</p>
           </CardContent>
         </Card>
@@ -347,7 +362,7 @@ export default function AirdropPage() {
                       type="submit" 
                       onClick={() => {
                         setNewProject({...newProject, type: "active"});
-                        handleAddProject();
+                        handleAddActiveProject();
                       }}
                       className="px-8 py-3 text-base bg-blue-600 hover:bg-blue-700"
                       disabled={!newProject.project || !newProject.chain}
@@ -391,10 +406,10 @@ export default function AirdropPage() {
                   
                   <div className="space-y-2 mb-3">
                     <p className="text-sm text-muted-foreground">Requirements:</p>
-                    {airdrop.requirements.map((req, idx) => (
+                    {airdrop.requirements.split(',').map((req, idx) => (
                       <div key={idx} className="flex items-center text-sm">
                         <CheckCircle className="h-3 w-3 text-green-500 mr-2" />
-                        {req}
+                        {req.trim()}
                       </div>
                     ))}
                   </div>
@@ -428,9 +443,11 @@ export default function AirdropPage() {
                 variant="outline" 
                 className="cursor-pointer hover:bg-accent hover:text-accent-foreground transition-colors"
                 onClick={() => setIsCompletedDialogOpen(true)}
+                disabled={!isAuthenticated}
+                title={!isAuthenticated ? "请先连接钱包" : "添加项目到我的列表"}
               >
                 <Plus className="h-3 w-3 mr-1" />
-                添加项目
+                {!isAuthenticated ? "请先连接钱包" : "添加项目"}
               </Button>
               <Dialog open={isCompletedDialogOpen} onOpenChange={setIsCompletedDialogOpen}>
                 <DialogContent className="max-w-[540px] mx-auto max-h-[90vh] overflow-y-auto">
@@ -506,18 +523,23 @@ export default function AirdropPage() {
                   <DialogFooter className="flex justify-end space-x-4 pt-6">
                     <Button 
                       type="submit" 
-                      onClick={() => {
+                      onClick={async () => {
                         if (newProject.project) {
-                          const ipCount = newProject.requirements || "0";
-                          const accountCount = newProject.estimatedValue || "0";
-                          const completedProject = {
-                            project: newProject.project,
-                            chain: newProject.chain,
-                            claimedDate: new Date().toISOString().split('T')[0],
-                            amount: `${accountCount}号 / ${ipCount}IP`,
-                            value: `号:${accountCount} IP:${ipCount}`,
-                          };
-                          setCompletedAirdrops([...completedAirdrops, completedProject]);
+                          const ipCount = Number(newProject.requirements) || 0;
+                          const accountCount = Number(newProject.estimatedValue) || 0;
+                          
+                          // 从活跃空投中找到对应的项目
+                          const selectedAirdrop = activeAirdrops.find(a => a.project === newProject.project);
+                          if (selectedAirdrop) {
+                            await handleAddUserProject(
+                              selectedAirdrop.id,
+                              newProject.project,
+                              newProject.chain,
+                              accountCount,
+                              ipCount
+                            );
+                          }
+                          
                           setNewProject({
                             project: "",
                             chain: "",
@@ -548,43 +570,49 @@ export default function AirdropPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {completedAirdrops.map((airdrop, index) => (
+              {userProjects.map((project, index) => (
                 <div key={`completed-${index}`} className="border rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/20 relative group">
                   <Button
                     size="sm"
                     variant="ghost"
                     className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-100 hover:text-red-600"
-                    onClick={() => openDeleteConfirm("completed", index, airdrop.project)}
+                    onClick={() => openDeleteConfirm("completed", project.id, project.project)}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
                   <div className="flex justify-between items-start mb-2 pr-8">
                     <div>
-                      <h3 className="font-semibold">{airdrop.project}</h3>
-                      <p className="text-sm text-muted-foreground">{airdrop.chain}</p>
+                      <h3 className="font-semibold">{project.project}</h3>
+                      <p className="text-sm text-muted-foreground">{project.chain}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-medium text-blue-600">{airdrop.value}</p>
+                      <p className="text-sm font-medium text-blue-600">号:{project.accountCount} IP:{project.ipCount}</p>
                     </div>
                   </div>
                   
                   <div className="flex justify-between items-center">
                     <p className="text-sm">
-                      <span className="font-medium">{airdrop.amount}</span>
+                      <span className="font-medium">{project.accountCount}号 / {project.ipCount}IP</span>
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {mounted ? new Date(airdrop.claimedDate).toLocaleDateString() : airdrop.claimedDate}
+                      {mounted ? new Date(project.createdAt).toLocaleDateString() : project.createdAt}
                     </p>
                   </div>
                 </div>
               ))}
               
-              {completedAirdrops.length === 0 && (
+              {!isAuthenticated ? (
+                <div className="text-center text-muted-foreground py-8">
+                  <Folder className="h-12 w-12 mx-auto mb-4" />
+                  <p className="mb-2">请先连接钱包</p>
+                  <p className="text-sm">连接钱包后可查看您的项目</p>
+                </div>
+              ) : userProjects.length === 0 ? (
                 <div className="text-center text-muted-foreground py-8">
                   <Folder className="h-12 w-12 mx-auto mb-4" />
                   <p>暂无项目</p>
                 </div>
-              )}
+              ) : null}
             </div>
           </CardContent>
         </Card>
