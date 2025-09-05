@@ -11,6 +11,8 @@ import { apiDePINStore, type ApiDePINStore } from '@/components/depin/api-depin-
 import { type DePINProject, type UserNode, projectsApi } from '@/lib/api';
 import { CustomModal, AddNodeForm } from '@/components/depin/custom-modal';
 import { AddProjectModal } from '@/components/depin/AddProjectModal';
+import { priceService } from '@/services/price.service';
+import { DailyRewardsService } from '@/services/daily-rewards.service';
 
 export default function DePINPage() {
   const { t } = useLanguage();
@@ -21,6 +23,9 @@ export default function DePINPage() {
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClientReady, setIsClientReady] = useState(false);
+  const [tokenPrices, setTokenPrices] = useState<Record<string, number>>({});
+  const [isGlobalRefreshing, setIsGlobalRefreshing] = useState(false);
+  const [weeklyRewards, setWeeklyRewards] = useState<{ totalUSD: number; breakdown: Record<string, { amount: number; usd: number }>; averageDaily: number } | null>(null);
 
   useEffect(() => {
     // Mark client as ready to prevent hydration issues
@@ -71,25 +76,100 @@ export default function DePINPage() {
     return () => clearInterval(interval);
   }, [isAuthenticated, storeState.nodes.length]);
 
+  // 获取代币价格的函数
+  const fetchTokenPrices = async () => {
+    if (storeState.projects.length === 0) return;
+    
+    try {
+      // 提取所有唯一的代币符号
+      const tokenSymbols = Array.from(new Set(storeState.projects.map(p => p.tokenSymbol)));
+      
+      // 批量获取价格
+      const prices = await priceService.getTokenPrices(tokenSymbols);
+      setTokenPrices(prices);
+      
+      console.log('🏷️ 代币价格已更新:', prices);
+    } catch (error) {
+      console.error('获取代币价格失败:', error);
+    }
+  };
+
+  // 价格定时更新
+  useEffect(() => {
+    // 立即获取价格
+    fetchTokenPrices();
+    
+    // 每5分钟更新一次价格
+    const priceInterval = setInterval(fetchTokenPrices, 5 * 60 * 1000);
+    
+    return () => clearInterval(priceInterval);
+  }, [storeState.projects]);
+
+  // 获取每周奖励数据的函数
+  const fetchWeeklyRewards = async () => {
+    if (!isAuthenticated || !user?.id || !isClientReady) return;
+
+    try {
+      const rewards = await DailyRewardsService.getWeeklyRewards(user.id, 7);
+      setWeeklyRewards(rewards);
+      console.log('📊 每周奖励数据已更新:', rewards);
+    } catch (error) {
+      console.error('获取每周奖励失败:', error);
+    }
+  };
+
+  // 每周奖励定时更新
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id || !isClientReady) return;
+
+    // 立即获取每周奖励
+    fetchWeeklyRewards();
+    
+    // 每30分钟更新一次每周奖励
+    const weeklyInterval = setInterval(fetchWeeklyRewards, 30 * 60 * 1000);
+    
+    return () => clearInterval(weeklyInterval);
+  }, [isAuthenticated, user?.id, isClientReady]);
 
   const handleRefresh = async () => {
     setNotifications(prev => [...prev, '正在刷新数据...']);
+    setIsGlobalRefreshing(true);
     
     try {
-      // 先触发容量更新
-      const capacityResult = await apiDePINStore.triggerCapacityUpdate();
-      console.log('📊 手动触发容量更新:', capacityResult.message);
+      // 并行执行快速操作，容量更新单独处理
+      const quickOperations = [
+        fetchTokenPrices(),
+        fetchWeeklyRewards()
+      ];
       
-      // 等待后端处理
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 先执行快速操作
+      await Promise.all(quickOperations);
       
-      // 刷新所有数据
+      // 容量更新可能较慢，单独处理不阻塞其他操作
+      const capacityUpdatePromise = apiDePINStore.triggerCapacityUpdate().catch(error => {
+        console.warn('容量更新超时，但其他数据已刷新:', error);
+        setNotifications(prev => [...prev, '容量更新超时，其他数据已刷新']);
+        return { success: false, message: '容量更新超时' };
+      });
+      
+      // 刷新store中的所有数据
       await apiDePINStore.refreshAll();
+      
+      // 容量更新在后台进行，不阻塞用户界面
+      capacityUpdatePromise.then(result => {
+        if (result.success) {
+          setNotifications(prev => [...prev, '容量更新完成']);
+          // 2秒后刷新节点数据以显示更新的容量
+          setTimeout(() => apiDePINStore.refreshNodes(), 2000);
+        }
+      });
       
       setNotifications(prev => [...prev, `数据刷新完成 - ${new Date().toLocaleTimeString()}`]);
     } catch (error) {
       console.error('刷新失败:', error);
       setNotifications(prev => [...prev, '数据刷新失败，请稍后重试']);
+    } finally {
+      setIsGlobalRefreshing(false);
     }
   };
 
@@ -288,13 +368,29 @@ export default function DePINPage() {
   // Calculate stats
   const totalNodes = storeState.nodes.length;
   const onlineNodes = storeState.nodes.filter(node => node.status === 'online').length;
+  
+  // Calculate total daily earnings in USD (每日奖励 × 价格 加总)
+  const totalDailyEarningsUSD = storeState.nodes.reduce((sum, node) => {
+    // Extract number and token from earnings like "50.25 FIL/day" or "24.80 HNT/day"
+    const match = node.earnings.match(/^([\d.]+)\s*(\w+)/);
+    if (!match) return sum;
+    
+    const earnings = parseFloat(match[1]);
+    const tokenSymbol = match[2].toUpperCase();
+    const tokenPrice = tokenPrices[tokenSymbol] || 0;
+    
+    return sum + (earnings * tokenPrice);
+  }, 0);
+  
+  // Also calculate token-based daily earnings for backward compatibility
   const totalDailyEarnings = storeState.nodes.reduce((sum, node) => {
-    // Extract number from earnings like "50.25 FIL/day" or "24.80 HNT/day"
     const match = node.earnings.match(/^([\d.]+)/);
     const earnings = match ? parseFloat(match[1]) : 0;
     return sum + earnings;
   }, 0);
-  const totalEarned = storeState.nodes.reduce((sum, node) => sum + node.totalEarned, 0);
+  
+  // Calculate portfolio value using weekly rewards (rolling 7 days)
+  const totalEarned = weeklyRewards?.totalUSD || 0;
 
   return (
     <div className="space-y-6">
@@ -324,8 +420,8 @@ export default function DePINPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={handleRefresh} disabled={apiDePINStore.isLoading()}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${apiDePINStore.isLoading() ? 'animate-spin' : ''}`} />
+          <Button variant="outline" onClick={handleRefresh} disabled={isGlobalRefreshing || apiDePINStore.isLoading()}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isGlobalRefreshing || apiDePINStore.isLoading() ? 'animate-spin' : ''}`} />
             Refresh Data
           </Button>
           <Button variant="outline" onClick={handleTriggerCapacityUpdate}>
@@ -338,13 +434,13 @@ export default function DePINPage() {
         </div>
       </div>
 
-      {/* Loading indicator */}
-      {apiDePINStore.isLoading() && (
+      {/* Loading indicator - 只在全局刷新时显示 */}
+      {isGlobalRefreshing && (
         <Card>
           <CardContent className="py-6">
             <div className="flex items-center space-x-2">
               <RefreshCw className="h-4 w-4 animate-spin" />
-              <span>Loading data from backend...</span>
+              <span>刷新数据中，请稍候...</span>
             </div>
           </CardContent>
         </Card>
@@ -397,8 +493,12 @@ export default function DePINPage() {
             <Zap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalDailyEarnings.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">{t('depin.dailyRewards')}</p>
+            <div className="text-2xl font-bold">
+              ${totalDailyEarningsUSD.toFixed(2)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('depin.dailyRewards')} • {totalDailyEarnings.toFixed(2)} tokens
+            </p>
           </CardContent>
         </Card>
 
@@ -408,8 +508,17 @@ export default function DePINPage() {
             <BarChart3 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${totalEarned.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Total earned</p>
+            <div className="text-2xl font-bold">
+              ${totalEarned.toFixed(2)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Weekly earned (7 days rolling)
+              {weeklyRewards && (
+                <span className="ml-1">
+                  • Avg: ${weeklyRewards.averageDaily.toFixed(2)}/day
+                </span>
+              )}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -497,6 +606,9 @@ export default function DePINPage() {
                           <p className="text-sm font-medium text-green-500">
                             {dailyEarnings.toFixed(2)} {project.tokenSymbol}/day
                           </p>
+                          <p className="text-xs text-muted-foreground">
+                            ${(dailyEarnings * (tokenPrices[project.tokenSymbol] || 0)).toFixed(2)} USD
+                          </p>
                         </div>
                         {isAuthenticated && (
                           <Button 
@@ -511,17 +623,25 @@ export default function DePINPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 mb-3">
+                    <div className="grid grid-cols-4 gap-3 mb-3">
                       <div>
                         <p className="text-xs text-muted-foreground">Token</p>
                         <p className="font-medium">{project.tokenSymbol}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Price</p>
+                        <p className="font-medium text-green-600">
+                          <span>
+                            ${(tokenPrices[project.tokenSymbol] || 0).toFixed(4)}
+                          </span>
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">My Nodes</p>
                         <p className="font-medium">{nodeCount} nodes</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Total Capacity</p>
+                        <p className="text-xs text-muted-foreground">Capacity</p>
                         <p className="font-medium text-blue-600">{projectCapacity}</p>
                       </div>
                     </div>

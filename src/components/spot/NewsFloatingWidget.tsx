@@ -147,7 +147,7 @@ export const NewsFloatingWidget: React.FC<NewsFloatingWidgetProps> = ({
       className={`fixed bottom-6 right-6 z-50 w-96 transition-all duration-500 ease-out ${className}`}
       style={{ transform: isExpanded ? 'translateY(0)' : 'translateY(calc(100% - 70px))' }}
     >
-      <Card className={`shadow-2xl ${hasNewNews ? 'border-2 border-gradient-to-r from-orange-400 to-red-400 shadow-orange-400/50 animate-pulse' : 'border border-border/50'} bg-gradient-to-br from-background/98 via-background/95 to-background/92 backdrop-blur-lg`}>
+      <Card className={`shadow-2xl ${hasNewNews ? 'border-2 border-orange-400 shadow-orange-400/30' : 'border border-border/50'} bg-background/95 backdrop-blur-sm`}>
         {/* 头部 - 始终可见 */}
         <CardHeader 
           className="pb-3 cursor-pointer hover:bg-gradient-to-r hover:from-muted/30 hover:to-muted/20 transition-all duration-300 rounded-t-lg"
@@ -155,10 +155,10 @@ export const NewsFloatingWidget: React.FC<NewsFloatingWidgetProps> = ({
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className={`relative ${hasNewNews ? 'animate-bounce' : ''}`}>
-                <Zap className={`h-5 w-5 ${hasNewNews ? 'text-orange-500 drop-shadow-lg' : 'text-blue-500'}`} />
+              <div className="relative">
+                <Zap className={`h-5 w-5 ${hasNewNews ? 'text-orange-500' : 'text-blue-500'}`} />
                 {hasNewNews && (
-                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></div>
                 )}
               </div>
               <div className="flex flex-col">
@@ -166,8 +166,8 @@ export const NewsFloatingWidget: React.FC<NewsFloatingWidgetProps> = ({
                   实时快讯
                 </CardTitle>
                 {hasNewNews && (
-                  <Badge variant="destructive" className="mt-1 text-xs animate-pulse bg-gradient-to-r from-orange-500 to-red-500 border-0 shadow-lg">
-                    <span className="animate-pulse">●</span> 新消息
+                  <Badge variant="destructive" className="mt-1 text-xs bg-orange-500 border-0 shadow-sm">
+                    <span>●</span> 新消息
                   </Badge>
                 )}
               </div>
@@ -218,13 +218,13 @@ export const NewsFloatingWidget: React.FC<NewsFloatingWidgetProps> = ({
               news.map((item, index) => (
                 <div
                   key={item.id}
-                  className={`group relative p-4 rounded-xl border border-border/30 hover:border-primary/30 bg-gradient-to-r from-card/50 to-card/30 hover:from-card/80 hover:to-card/60 cursor-pointer transition-all duration-300 hover:shadow-lg hover:scale-[1.02] ${index === 0 && hasNewNews ? 'ring-2 ring-orange-400/50 shadow-orange-400/20' : ''}`}
+                  className={`group relative p-4 rounded-xl border border-border/30 hover:border-primary/30 bg-gradient-to-r from-card/50 to-card/30 hover:from-card/80 hover:to-card/60 cursor-pointer transition-all duration-300 hover:shadow-lg hover:scale-[1.02] ${index === 0 && hasNewNews ? 'border-orange-400 shadow-orange-400/10' : ''}`}
                   onClick={() => handleNewsClick(item)}
                 >
                   {/* 新消息标记 */}
                   {index === 0 && hasNewNews && (
                     <div className="absolute -top-2 -right-2">
-                      <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs px-2 py-1 rounded-full shadow-lg animate-bounce">
+                      <div className="bg-orange-500 text-white text-xs px-2 py-1 rounded-full shadow-sm">
                         NEW
                       </div>
                     </div>

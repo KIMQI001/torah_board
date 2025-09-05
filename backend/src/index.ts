@@ -22,6 +22,7 @@ import daoRoutes from '@/routes/dao.routes';
 import { spotRoutes } from '@/routes/spot.routes';
 import { airdropRoutes } from '@/routes/airdrop.routes';
 import { dailyRewardsRoutes } from '@/routes/daily-rewards.routes';
+import journalRoutes from '@/routes/journal.routes';
 
 // Import services
 import { SchedulerService } from '@/services/scheduler.service';
@@ -119,6 +120,7 @@ app.use(`/api/${API_VERSION}/dashboard`, dashboardRoutes);
 app.use(`/api/${API_VERSION}/spot`, spotRoutes);
 app.use(`/api/${API_VERSION}/airdrop`, airdropRoutes);
 app.use(`/api/${API_VERSION}/daily-rewards`, dailyRewardsRoutes);
+app.use(`/api/${API_VERSION}/journal`, journalRoutes);
 app.use(`/api/${API_VERSION}`, daoRoutes);
 
 // 404 handler

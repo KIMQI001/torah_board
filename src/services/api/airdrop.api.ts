@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002/api/v1';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002/api/v1';
 
 export interface ActiveAirdrop {
   id: string;
@@ -67,28 +67,45 @@ export class AirdropAPI {
     limit?: number;
     offset?: number;
   }): Promise<PaginatedResponse<ActiveAirdrop>> {
-    const queryString = params ? new URLSearchParams(
-      Object.entries(params).reduce((acc, [key, value]) => {
-        if (value !== undefined) {
-          acc[key] = String(value);
-        }
-        return acc;
-      }, {} as Record<string, string>)
-    ).toString() : '';
+    try {
+      const queryString = params ? new URLSearchParams(
+        Object.entries(params).reduce((acc, [key, value]) => {
+          if (value !== undefined) {
+            acc[key] = String(value);
+          }
+          return acc;
+        }, {} as Record<string, string>)
+      ).toString() : '';
 
-    const response = await fetch(`${API_BASE_URL}/airdrop/active?${queryString}`);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const url = `${API_BASE_URL}/airdrop/active?${queryString}`;
+      console.log('Fetching airdrops from:', url);
+
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.error('HTTP error:', response.status, response.statusText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result: ApiResponse<PaginatedResponse<ActiveAirdrop>> = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+      
+      return result.data;
+    } catch (error) {
+      console.error('Error fetching active airdrops:', error);
+      
+      // 返回空数据以防止页面崩溃
+      return {
+        data: [],
+        total: 0,
+        limit: 20,
+        offset: 0,
+        hasMore: false
+      };
     }
-    
-    const result: ApiResponse<PaginatedResponse<ActiveAirdrop>> = await response.json();
-    
-    if (!result.success) {
-      throw new Error(result.message);
-    }
-    
-    return result.data;
   }
 
   /**
