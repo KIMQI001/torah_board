@@ -127,7 +127,7 @@ const sidebarItems = [
       },
       {
         key: "CoinGlass",
-        href: "/spot/coinglass",
+        href: "/spot/coinglass-charts",
         label: "CoinGlass"
       },
       {
@@ -136,9 +136,9 @@ const sidebarItems = [
         label: "交易指标"
       },
       {
-        key: "HuggingDashboard",
-        href: "/spot/hugging",
-        label: "交易面板"
+        key: "MarketAnomaly",
+        href: "/spot/gainers-losers",
+        label: "异动数据"
       }
     ]
   },
