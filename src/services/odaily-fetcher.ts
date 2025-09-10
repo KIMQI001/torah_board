@@ -83,24 +83,14 @@ class OdailyFetcher {
     try {
       console.log('🔗 正在调用Odaily抓取服务...');
       
-      // 动态获取当前服务器端口
-      const currentPort = typeof window !== 'undefined' 
-        ? window.location.port || '3000'
-        : process.env.PORT || '3000';
-      
-      const response = await fetch(`http://localhost:${currentPort}/api/odaily-scraper`);
-      
-      if (!response.ok) {
-        throw new Error(`抓取服务响应错误: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (result.success && result.data) {
-        console.log(`🎯 抓取服务返回 ${result.data.length} 条数据`);
+      // 在服务端直接调用抓取逻辑，避免HTTP请求问题
+      if (typeof window === 'undefined') {
+        console.log('🔧 服务端环境，直接调用抓取函数');
+        const { scrapeOdailyRealTime } = await import('./odaily-scraper');
+        const scrapedData = await scrapeOdailyRealTime();
         
         // 转换格式以匹配我们的接口
-        return result.data.map((item: any) => ({
+        return scrapedData.map((item: any) => ({
           id: item.id,
           title: item.title,
           content: item.content,
@@ -110,9 +100,35 @@ class OdailyFetcher {
           isImportant: item.isImportant || false,
           link: item.link
         }));
+      } else {
+        // 客户端：使用API调用
+        console.log('🌐 客户端环境，调用API接口');
+        const response = await fetch('/api/odaily-scraper');
+        
+        if (!response.ok) {
+          throw new Error(`抓取服务响应错误: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          console.log(`🎯 客户端API返回 ${result.data.length} 条数据`);
+          
+          // 转换格式以匹配我们的接口
+          return result.data.map((item: any) => ({
+            id: item.id,
+            title: item.title,
+            content: item.content,
+            time: item.time,
+            tags: item.tags || [],
+            publishTime: item.publishTime,
+            isImportant: item.isImportant || false,
+            link: item.link
+          }));
+        }
+        
+        throw new Error('抓取服务返回无效数据');
       }
-      
-      throw new Error('抓取服务返回无效数据');
       
     } catch (error) {
       console.error('🚫 调用抓取服务失败:', error);

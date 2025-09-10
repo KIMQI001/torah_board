@@ -2,10 +2,7 @@
  * 交易日志服务 - 前端与后端API交互
  */
 
-import { getAuthToken } from '@/lib/api';
-import { config } from '@/config';
-
-const API_BASE = config.api.legacyBaseUrl;
+import { getAuthToken, getApiBaseUrl } from '@/lib/api';
 
 export interface JournalEntry {
   id: string;
@@ -71,7 +68,7 @@ export class JournalService {
       }
 
       const response = await fetch(
-        `${API_BASE}/api/v1/journal/entries?${queryParams}`,
+        `${getApiBaseUrl()}/journal/entries?${queryParams}`,
         {
           method: 'GET',
           headers: this.getHeaders()
@@ -96,7 +93,7 @@ export class JournalService {
   static async getEntry(id: string): Promise<JournalEntry | null> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/journal/entries/${id}`,
+        `${getApiBaseUrl()}/journal/entries/${id}`,
         {
           method: 'GET',
           headers: this.getHeaders()
@@ -122,7 +119,7 @@ export class JournalService {
   static async createEntry(data: Omit<JournalEntry, 'id' | 'walletAddress' | 'userId' | 'createdAt' | 'updatedAt' | 'excerpt'>): Promise<JournalEntry> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/journal/entries`,
+        `${getApiBaseUrl()}/journal/entries`,
         {
           method: 'POST',
           headers: this.getHeaders(),
@@ -149,7 +146,7 @@ export class JournalService {
   static async updateEntry(id: string, data: Partial<Omit<JournalEntry, 'id' | 'walletAddress' | 'userId' | 'createdAt' | 'updatedAt'>>): Promise<JournalEntry> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/journal/entries/${id}`,
+        `${getApiBaseUrl()}/journal/entries/${id}`,
         {
           method: 'PUT',
           headers: this.getHeaders(),
@@ -176,7 +173,7 @@ export class JournalService {
   static async deleteEntry(id: string): Promise<boolean> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/journal/entries/${id}`,
+        `${getApiBaseUrl()}/journal/entries/${id}`,
         {
           method: 'DELETE',
           headers: this.getHeaders()
@@ -200,7 +197,7 @@ export class JournalService {
   static async getStats(): Promise<JournalStats> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/journal/stats`,
+        `${getApiBaseUrl()}/journal/stats`,
         {
           method: 'GET',
           headers: this.getHeaders()
@@ -225,7 +222,7 @@ export class JournalService {
   static async exportEntries(): Promise<JournalEntry[]> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/journal/export`,
+        `${getApiBaseUrl()}/journal/export`,
         {
           method: 'GET',
           headers: this.getHeaders()
