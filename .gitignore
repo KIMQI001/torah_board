@@ -48,3 +48,15 @@ next-env.d.ts
 .env*.local
 !.env.example
 !.env.production.example
+
+# Certificate files (generated)
+certs/
+backend/certs/
+
+# Log files
+*.log
+backend/*.log
+
+# Database files
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
