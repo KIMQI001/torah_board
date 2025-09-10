@@ -8,7 +8,7 @@ import {
   setAuthToken, 
   getAuthToken,
   clearAuthToken,
-  depinWebSocket,
+  getDepinWebSocket,
   type DePINProject, 
   type UserNode, 
   type DashboardStats 
@@ -114,7 +114,8 @@ class ApiDePINStoreClass {
           this.state.user = response.user || response.data?.user || response;
           
           // Connect WebSocket
-          depinWebSocket.connect();
+          const ws = getDepinWebSocket();
+          if (ws) ws.connect();
           
           // Load initial data
           this.loadInitialData();
@@ -143,7 +144,8 @@ class ApiDePINStoreClass {
       this.state.user = user;
       
       // Connect WebSocket
-      depinWebSocket.connect();
+      const ws = getDepinWebSocket();
+      if (ws) ws.connect();
       
       // Load initial data
       this.loadInitialData();
@@ -152,7 +154,8 @@ class ApiDePINStoreClass {
       console.log('🔄 DePIN Store: 清除认证状态');
       this.state.isAuthenticated = false;
       this.state.user = null;
-      depinWebSocket.disconnect();
+      const ws = getDepinWebSocket();
+      if (ws) ws.disconnect();
       this.notifyListeners();
     }
   }
@@ -198,7 +201,8 @@ class ApiDePINStoreClass {
         this.state.user = authResponse.user || authResponse.data?.user;
         
         // Connect WebSocket
-        depinWebSocket.connect();
+        const ws = getDepinWebSocket();
+        if (ws) ws.connect();
         
         // Load initial data
         await this.loadInitialData();
@@ -217,7 +221,8 @@ class ApiDePINStoreClass {
 
   private logout() {
     clearAuthToken();
-    depinWebSocket.disconnect();
+    const ws = getDepinWebSocket();
+    if (ws) ws.disconnect();
     
     this.state.isAuthenticated = false;
     this.state.user = null;
@@ -251,22 +256,25 @@ class ApiDePINStoreClass {
   }
 
   private setupWebSocketListeners() {
-    depinWebSocket.on('node_update', (data: any) => {
+    const ws = getDepinWebSocket();
+    if (!ws) return;
+    
+    ws.on('node_update', (data: any) => {
       console.log('Received node update:', data);
       this.refreshNodes();
     });
     
-    depinWebSocket.on('capacity_update', (data: any) => {
+    ws.on('capacity_update', (data: any) => {
       console.log('Received capacity update:', data);
       this.updateNodeCapacity(data.nodeId, data.capacity);
     });
     
-    depinWebSocket.on('performance_update', (data: any) => {
+    ws.on('performance_update', (data: any) => {
       console.log('Received performance update:', data);
       this.refreshNodes();
     });
     
-    depinWebSocket.on('system_status', (data: any) => {
+    ws.on('system_status', (data: any) => {
       console.log('System status:', data.message);
     });
   }

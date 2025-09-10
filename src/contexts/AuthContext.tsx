@@ -238,9 +238,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // 初始化时检查现有 token
   useEffect(() => {
     const initializeAuth = async () => {
-      // 清理开发模式的token，强制使用真实钱包
+      // 在生产环境清理开发模式的token，开发环境保留
       const token = getAuthToken();
-      if (token && token.startsWith('dev-token-')) {
+      if (token && token.startsWith('dev-token-') && process.env.NODE_ENV === 'production') {
         console.log('🧹 清除开发模式token，要求真实钱包连接');
         clearAuthToken();
         // 同时清理其他开发模式相关的localStorage数据

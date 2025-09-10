@@ -4,19 +4,30 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Save, X, Eye, Edit3 } from "lucide-react"
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { RichEditor } from "@/components/journal/rich-editor"
+
+interface JournalFolder {
+  id: string
+  name: string
+  icon: string
+  color: string
+}
 
 interface JournalEditorProps {
   initialTitle?: string
   initialContent?: string
   initialTags?: string[]
   initialCategory?: string
+  initialFolderId?: string
+  folders?: JournalFolder[]
+  currentFolder?: JournalFolder | null // 当前所在的文件夹
   onSave: (entry: {
     title: string
     content: string
     tags: string[]
     category: string
+    folderId?: string
+    excerpt?: string
   }) => void
   onCancel: () => void
   isEditing?: boolean
@@ -27,6 +38,9 @@ export function JournalEditor({
   initialContent = "",
   initialTags = [],
   initialCategory = "",
+  initialFolderId = "",
+  folders = [],
+  currentFolder = null,
   onSave,
   onCancel,
   isEditing = false
@@ -35,8 +49,29 @@ export function JournalEditor({
   const [content, setContent] = useState(initialContent)
   const [tags, setTags] = useState<string[]>(initialTags)
   const [category, setCategory] = useState(initialCategory)
+  // 如果在特定文件夹内创建新日志，默认选择当前文件夹
+  const [folderId, setFolderId] = useState(initialFolderId || (currentFolder && !isEditing ? currentFolder.id : ""))
   const [isPreview, setIsPreview] = useState(false)
   const [newTag, setNewTag] = useState("")
+
+  // 从HTML内容生成纯文本摘要
+  const generateExcerpt = (htmlContent: string): string => {
+    // 创建临时DOM元素来提取纯文本
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = htmlContent
+    
+    // 替换图片为[图片]文本
+    tempDiv.querySelectorAll('img').forEach(img => {
+      const textNode = document.createTextNode('[图片]')
+      img.replaceWith(textNode)
+    })
+    
+    // 获取纯文本
+    const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+    
+    // 截取前150个字符
+    return plainText.length > 150 ? plainText.slice(0, 150) + '...' : plainText
+  }
 
   const categories = [
     "Trading Strategy",
@@ -50,11 +85,16 @@ export function JournalEditor({
   const handleSave = () => {
     if (!title.trim() || !content.trim()) return
     
+    const trimmedContent = content.trim()
+    const excerpt = generateExcerpt(trimmedContent)
+    
     onSave({
       title: title.trim(),
-      content: content.trim(),
+      content: trimmedContent,
       tags,
-      category: category || "Ideas"
+      category: category || "Ideas",
+      folderId: folderId || undefined,
+      excerpt
     })
   }
 
@@ -68,6 +108,7 @@ export function JournalEditor({
   const removeTag = (tagToRemove: string) => {
     setTags(tags.filter(tag => tag !== tagToRemove))
   }
+
 
   return (
     <Card className="w-full max-w-4xl mx-auto">
@@ -102,7 +143,7 @@ export function JournalEditor({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Category</label>
             <select
@@ -116,6 +157,37 @@ export function JournalEditor({
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">文件夹</label>
+            {currentFolder && !isEditing ? (
+              // 如果在特定文件夹内创建新日志，显示当前文件夹信息
+              <div 
+                className="w-full px-3 py-2 border border-input bg-muted rounded-md flex items-center"
+                style={{ backgroundColor: `${currentFolder.color}10` }}
+              >
+                <span className="mr-2 text-lg">{currentFolder.icon}</span>
+                <span className="font-medium" style={{ color: currentFolder.color }}>
+                  {currentFolder.name}
+                </span>
+              </div>
+            ) : (
+              // 编辑时或在根目录时显示选择器
+              <select
+                value={folderId}
+                onChange={(e) => setFolderId(e.target.value)}
+                className="w-full px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                disabled={isPreview}
+              >
+                <option value="">根目录</option>
+                {folders.map(folder => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.icon} {folder.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div>
@@ -161,31 +233,17 @@ export function JournalEditor({
         <div>
           <label className="block text-sm font-medium mb-2">Content</label>
           {isPreview ? (
-            <div className="min-h-[300px] p-4 border border-input rounded-md bg-muted/50">
-              <ReactMarkdown 
-                remarkPlugins={[remarkGfm]}
-                className="prose prose-sm max-w-none dark:prose-invert"
-              >
-                {content || "*No content to preview*"}
-              </ReactMarkdown>
-            </div>
+            <div 
+              className="min-h-[300px] p-4 border border-input rounded-md bg-muted/50 prose prose-sm max-w-none dark:prose-invert"
+              dangerouslySetInnerHTML={{ 
+                __html: content || '<em>No content to preview</em>' 
+              }}
+            />
           ) : (
-            <textarea
+            <RichEditor
               value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Write your journal entry in Markdown format...
-
-## Example:
-**SOL Analysis**
-- Price: $98.45
-- Resistance: $100
-- Support: $95
-
-### Strategy
-1. Wait for breakout above $100
-2. Target: $110-115
-3. Stop loss: $92"
-              className="w-full h-64 px-3 py-2 border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring resize-none font-mono text-sm"
+              onChange={setContent}
+              placeholder="Write your journal entry here. You can paste images directly..."
             />
           )}
         </div>

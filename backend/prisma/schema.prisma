@@ -27,6 +27,7 @@ model User {
   favoriteSymbols FavoriteSymbol[]
   newsPreference  UserNewsPreference?
   journalEntries  JournalEntry[]
+  journalFolders  JournalFolder[]
   
   @@map("users")
 }
@@ -726,12 +727,38 @@ model DailyReward {
 }
 
 // 交易日志模型
+model JournalFolder {
+  id              String   @id @default(cuid())
+  walletAddress   String   // 钱包地址
+  userId          String?  // 用户ID（可选）
+  name            String   // 文件夹名称
+  description     String?  // 文件夹描述
+  color           String   @default("#3B82F6") // 文件夹颜色
+  icon            String   @default("📁") // 文件夹图标
+  parentId        String?  // 父文件夹ID，支持嵌套
+  sortOrder       Int      @default(0) // 排序顺序
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent          JournalFolder? @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children        JournalFolder[] @relation("FolderHierarchy")
+  entries         JournalEntry[]
+  
+  @@index([walletAddress])
+  @@index([userId])
+  @@index([parentId])
+  @@map("journal_folders")
+}
+
 model JournalEntry {
   id              String   @id @default(cuid())
   walletAddress   String   // 钱包地址
   userId          String?  // 用户ID（可选）
+  folderId        String?  // 所属文件夹ID
   title           String
-  content         String   // Markdown内容
+  content         String   // HTML内容
   excerpt         String?  // 摘要
   category        String   // 分类
   tags            String   // JSON数组的标签
@@ -739,14 +766,17 @@ model JournalEntry {
   imageUrls       String?  // JSON数组的图片URL
   isPublic        Boolean  @default(false) // 是否公开
   sentiment       String?  // 市场情绪: 'bullish', 'bearish', 'neutral'
+  sortOrder       Int      @default(0) // 排序顺序
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
   // Relations
   user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder          JournalFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   
   @@index([walletAddress])
   @@index([userId])
+  @@index([folderId])
   @@index([category])
   @@index([createdAt])
   @@map("journal_entries")

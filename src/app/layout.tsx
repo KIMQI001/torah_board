@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LayoutProvider } from "@/contexts/LayoutContext";
 import { ResponsiveLayout } from "@/components/layout/ResponsiveLayout";
 import { FloatingNewsWrapper } from "@/components/layout/FloatingNewsWrapper";
+import { WalletAccessWarning } from "@/components/wallet/WalletAccessWarning";
 import "./globals.css";
 
 const geistSans = Geist({

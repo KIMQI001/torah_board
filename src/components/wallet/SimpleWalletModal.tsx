@@ -72,27 +72,32 @@ export function SimpleWalletModal({ open, onClose }: SimpleWalletModalProps) {
 
     if (wallet.isInstalled) {
       try {
-        console.log('开始连接钱包:', wallet.name);
+        console.log('🔗 开始连接钱包:', wallet.name);
         
-        // 尝试连接已安装的钱包
+        // 获取钱包适配器
         let walletAdapter: any = null;
 
         switch (wallet.name) {
           case 'Phantom':
             walletAdapter = (window as any)?.solana;
-            console.log('Phantom adapter:', !!walletAdapter, walletAdapter?.isPhantom);
+            console.log('📱 Phantom检测:', {
+              存在: !!walletAdapter,
+              isPhantom: walletAdapter?.isPhantom,
+              已连接: walletAdapter?.isConnected,
+              公钥: walletAdapter?.publicKey?.toString()
+            });
             break;
           case 'Solflare':
             walletAdapter = (window as any)?.solflare;
-            console.log('Solflare adapter:', !!walletAdapter);
+            console.log('📱 Solflare检测:', !!walletAdapter);
             break;
           case 'Backpack':
             walletAdapter = (window as any)?.backpack;
-            console.log('Backpack adapter:', !!walletAdapter);
+            console.log('📱 Backpack检测:', !!walletAdapter);
             break;
           case 'Coinbase':
             walletAdapter = (window as any)?.coinbaseSolana;
-            console.log('Coinbase adapter:', !!walletAdapter);
+            console.log('📱 Coinbase检测:', !!walletAdapter);
             break;
         }
 
@@ -100,61 +105,103 @@ export function SimpleWalletModal({ open, onClose }: SimpleWalletModalProps) {
           throw new Error(`${wallet.name} 钱包未安装或未检测到`);
         }
 
-        console.log('尝试连接钱包适配器...');
-        // 请求连接钱包
-        const response = await walletAdapter.connect();
-        console.log('钱包连接成功:', response);
+        let publicKey;
         
-        const publicKey = response.publicKey || walletAdapter.publicKey;
-        console.log('获取到的公钥:', publicKey);
-        console.log('公钥类型:', typeof publicKey, 'toString方法:', !!publicKey?.toString);
+        // 检查是否已经连接
+        if (walletAdapter.isConnected && walletAdapter.publicKey) {
+          console.log('✅ 钱包已连接，直接使用现有连接');
+          publicKey = walletAdapter.publicKey;
+        } else {
+          console.log('🔌 钱包未连接，请求用户连接...');
+          
+          try {
+            // 对于Phantom，直接调用connect()应该弹出授权窗口
+            console.log('🚀 调用钱包connect()方法...');
+            const connectResult = await walletAdapter.connect();
+            console.log('✅ 连接结果:', connectResult);
+            
+            // 获取公钥
+            publicKey = connectResult?.publicKey || walletAdapter.publicKey;
+            
+            if (!publicKey) {
+              console.error('❌ 连接成功但未获取到公钥');
+              throw new Error('连接成功但未获取到公钥');
+            }
+            
+            console.log('🔑 成功获取公钥:', publicKey.toString());
+            
+          } catch (connectError: any) {
+            console.error('❌ 钱包连接错误:', connectError);
+            
+            // 处理常见错误
+            if (connectError.code === 4001) {
+              throw new Error('用户拒绝了钱包连接请求');
+            } else if (connectError.code === -32603) {
+              throw new Error('钱包内部错误，请重试');
+            } else if (connectError.message?.includes('User rejected')) {
+              throw new Error('用户取消了连接请求');
+            } else {
+              throw new Error(`钱包连接失败: ${connectError.message || '未知错误'}`);
+            }
+          }
+        }
         
         if (!publicKey) {
           throw new Error('未能获取钱包公钥');
         }
 
-        // 确保公钥是正确的格式（Base58字符串）
+        // 转换公钥为字符串格式
         let publicKeyString: string;
-        if (typeof publicKey === 'string') {
-          publicKeyString = publicKey;
-        } else if (publicKey.toString) {
-          publicKeyString = publicKey.toString();
-        } else if (publicKey.toBase58) {
-          publicKeyString = publicKey.toBase58();
-        } else {
-          throw new Error('无法获取公钥字符串格式');
+        try {
+          if (typeof publicKey === 'string') {
+            publicKeyString = publicKey;
+          } else if (publicKey.toString) {
+            publicKeyString = publicKey.toString();
+          } else if (publicKey.toBase58) {
+            publicKeyString = publicKey.toBase58();
+          } else {
+            throw new Error('无法转换公钥格式');
+          }
+          console.log('🔑 公钥字符串:', publicKeyString);
+        } catch (keyError) {
+          console.error('❌ 公钥转换失败:', keyError);
+          throw new Error('公钥格式转换失败');
         }
-        
-        console.log('公钥字符串:', publicKeyString);
 
-        // 创建简化的钱包对象用于认证
-        const mockWallet = {
+        // 构建钱包对象供认证使用
+        const authWallet = {
           adapter: {
             name: wallet.name,
-            connected: true, // 重要：标记为已连接
-            publicKey: { toString: () => publicKeyString, toBase58: () => publicKeyString },
-            signMessage: walletAdapter.signMessage?.bind(walletAdapter) || walletAdapter.sign?.bind(walletAdapter)
+            connected: true,
+            publicKey: {
+              toString: () => publicKeyString,
+              toBase58: () => publicKeyString,
+              toBytes: () => new Uint8Array(32)
+            },
+            signMessage: walletAdapter.signMessage?.bind(walletAdapter),
+            disconnect: walletAdapter.disconnect?.bind(walletAdapter),
+            signTransaction: walletAdapter.signTransaction?.bind(walletAdapter),
+            signAllTransactions: walletAdapter.signAllTransactions?.bind(walletAdapter)
           }
         };
 
-        console.log('开始认证流程...');
-        // 触发认证流程
-        const success = await signIn(mockWallet as any);
-        console.log('认证结果:', success);
+        console.log('🔐 开始用户认证流程...');
+        const authSuccess = await signIn(authWallet as any);
         
-        if (success) {
-          console.log('认证成功，关闭弹窗');
+        if (authSuccess) {
+          console.log('✅ 认证成功，关闭弹窗');
           onClose();
         } else {
-          throw new Error('认证失败');
+          throw new Error('用户认证失败');
         }
-      } catch (error) {
-        console.error('连接钱包详细错误:', error);
-        console.error('错误堆栈:', error.stack);
+        
+      } catch (error: any) {
+        console.error('❌ 钱包连接流程失败:', error);
         alert(`连接钱包失败: ${error.message || '未知错误'}`);
       }
     } else {
-      // 打开钱包下载页面
+      // 钱包未安装，打开下载页面
+      console.log('🔗 钱包未安装，打开下载页面:', wallet.downloadUrl);
       window.open(wallet.downloadUrl, '_blank');
     }
 

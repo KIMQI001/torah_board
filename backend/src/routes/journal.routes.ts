@@ -23,6 +23,7 @@ router.get('/entries', authMiddleware, async (req, res) => {
 
     const { 
       category, 
+      folderId,
       search, 
       limit = 20, 
       offset = 0,
@@ -36,6 +37,14 @@ router.get('/entries', authMiddleware, async (req, res) => {
 
     if (category) {
       where.category = category as string;
+    }
+
+    // 文件夹筛选
+    if (folderId === 'null' || folderId === '') {
+      // 查询根目录（没有文件夹）的条目
+      where.folderId = null;
+    } else if (folderId) {
+      where.folderId = folderId as string;
     }
 
     if (search) {
@@ -53,10 +62,14 @@ router.get('/entries', authMiddleware, async (req, res) => {
       select: {
         id: true,
         title: true,
+        content: true,
         excerpt: true,
         category: true,
         tags: true,
         sentiment: true,
+        imageUrls: true,
+        tradeData: true,
+        isPublic: true,
         createdAt: true,
         updatedAt: true,
       }
@@ -67,7 +80,9 @@ router.get('/entries', authMiddleware, async (req, res) => {
     // 解析JSON字段
     const formattedEntries = entries.map(entry => ({
       ...entry,
-      tags: entry.tags ? JSON.parse(entry.tags) : []
+      tags: entry.tags ? JSON.parse(entry.tags) : [],
+      imageUrls: entry.imageUrls ? JSON.parse(entry.imageUrls) : [],
+      tradeData: entry.tradeData ? JSON.parse(entry.tradeData) : null
     }));
 
     res.json({
@@ -141,6 +156,7 @@ router.post('/entries', authMiddleware, async (req, res) => {
       content,
       category,
       tags = [],
+      folderId,
       tradeData,
       imageUrls = [],
       isPublic = false,
@@ -149,6 +165,23 @@ router.post('/entries', authMiddleware, async (req, res) => {
 
     // 生成摘要
     const excerpt = content.slice(0, 150) + (content.length > 150 ? '...' : '');
+
+    // 检查文件夹是否存在且属于用户（如果提供了文件夹ID）
+    if (folderId) {
+      const folder = await prisma.journalFolder.findFirst({
+        where: {
+          id: folderId,
+          walletAddress
+        }
+      });
+
+      if (!folder) {
+        return res.status(404).json({
+          success: false,
+          message: 'Folder not found'
+        });
+      }
+    }
 
     const entry = await prisma.journalEntry.create({
       data: {
@@ -159,6 +192,7 @@ router.post('/entries', authMiddleware, async (req, res) => {
         excerpt,
         category,
         tags: JSON.stringify(tags),
+        folderId,
         tradeData: tradeData ? JSON.stringify(tradeData) : null,
         imageUrls: JSON.stringify(imageUrls),
         isPublic,

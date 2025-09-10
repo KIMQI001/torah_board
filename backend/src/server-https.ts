@@ -3,6 +3,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import https from 'https';
+import fs from 'fs';
+import path from 'path';
 
 // Load environment variables
 dotenv.config();
@@ -33,18 +36,29 @@ const PORT = process.env.PORT || 3002;
 const WS_PORT = parseInt(process.env.WS_PORT || '5002');
 const API_VERSION = process.env.API_VERSION || 'v1';
 
+// HTTPS证书配置
+const httpsOptions = {
+  key: fs.readFileSync(path.join(__dirname, '../certs/private-key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, '../certs/certificate.pem')),
+};
+
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
+// CORS configuration - 添加HTTPS支持
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-frontend-domain.com', 'http://172.18.0.160:3000'] 
+    ? ['https://your-frontend-domain.com', 'https://172.18.0.160:3000'] 
     : [
         'http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 
         'http://localhost:3004', 'http://localhost:3005', 'http://localhost:3006',
         'http://172.18.0.160:3000', 'http://172.18.0.160:3001', 'http://172.18.0.160:3003',
-        'http://172.18.0.160:3004', 'http://172.18.0.160:3005', 'http://172.18.0.160:3006'
+        'http://172.18.0.160:3004', 'http://172.18.0.160:3005', 'http://172.18.0.160:3006',
+        // 添加HTTPS支持
+        'https://localhost:3000', 'https://localhost:3001', 'https://localhost:3003',
+        'https://localhost:3004', 'https://localhost:3005', 'https://localhost:3006',
+        'https://172.18.0.160:3000', 'https://172.18.0.160:3001', 'https://172.18.0.160:3003',
+        'https://172.18.0.160:3004', 'https://172.18.0.160:3005', 'https://172.18.0.160:3006'
       ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -95,7 +109,8 @@ app.get('/health', async (req, res) => {
       services: {
         database: dbHealthy ? 'healthy' : 'unhealthy',
         server: 'healthy'
-      }
+      },
+      https: true // 标记这是HTTPS版本
     };
 
     if (!dbHealthy) {
@@ -176,15 +191,16 @@ async function startServer() {
     // Initialize WebSocket service
     // WebSocketService.initialize(WS_PORT); // Temporarily disabled to avoid port conflicts
 
-    // Start HTTP server - bind to all network interfaces
-    app.listen(PORT, '0.0.0.0', () => {
-      Logger.info(`🚀 DePIN Dashboard API server running on port ${PORT}`);
+    // Start HTTPS server - bind to all network interfaces
+    https.createServer(httpsOptions, app).listen(PORT, '0.0.0.0', () => {
+      Logger.info(`🚀 DePIN Dashboard HTTPS API server running on port ${PORT}`);
       Logger.info(`🔗 WebSocket server running on port ${WS_PORT}`);
-      Logger.info(`📊 Health check available at http://localhost:${PORT}/health`);
-      Logger.info(`📊 Network access available at http://172.18.0.160:${PORT}/health`);
-      Logger.info(`🔗 API base URL: http://localhost:${PORT}/api/${API_VERSION}`);
-      Logger.info(`🔗 Network API URL: http://172.18.0.160:${PORT}/api/${API_VERSION}`);
+      Logger.info(`📊 Health check available at https://localhost:${PORT}/health`);
+      Logger.info(`📊 Network access available at https://172.18.0.160:${PORT}/health`);
+      Logger.info(`🔗 API base URL: https://localhost:${PORT}/api/${API_VERSION}`);
+      Logger.info(`🔗 Network API URL: https://172.18.0.160:${PORT}/api/${API_VERSION}`);
       Logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      Logger.info(`🔒 HTTPS enabled with self-signed certificate`);
     });
 
   } catch (error) {

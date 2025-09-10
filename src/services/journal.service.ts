@@ -3,8 +3,9 @@
  */
 
 import { getAuthToken } from '@/lib/api';
+import { config } from '@/config';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002';
+const API_BASE = config.api.legacyBaseUrl;
 
 export interface JournalEntry {
   id: string;
@@ -15,6 +16,7 @@ export interface JournalEntry {
   excerpt?: string;
   category: string;
   tags: string[];
+  folderId?: string;
   tradeData?: {
     symbol?: string;
     entryPrice?: number;
@@ -274,7 +276,19 @@ export class JournalService {
     if (typeof window === 'undefined') return [];
     try {
       const cached = localStorage.getItem('journal_cache');
-      return cached ? JSON.parse(cached) : [];
+      if (cached) {
+        const entries = JSON.parse(cached);
+        console.log('📖 Cache loaded:', {
+          entryCount: entries.length,
+          dataSize: cached.length,
+          firstEntry: entries[0] ? { id: entries[0].id, title: entries[0].title, createdAt: entries[0].createdAt } : null,
+          rawDataPreview: cached.substring(0, 100) + '...'
+        });
+        return entries;
+      } else {
+        console.log('📖 No cache found');
+        return [];
+      }
     } catch (error) {
       console.error('Error reading journal cache:', error);
       return [];
@@ -284,7 +298,22 @@ export class JournalService {
   static setLocalCache(entries: JournalEntry[]): void {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem('journal_cache', JSON.stringify(entries));
+      const dataString = JSON.stringify(entries);
+      localStorage.setItem('journal_cache', dataString);
+      console.log('💾 Cache saved:', {
+        entryCount: entries.length,
+        dataSize: dataString.length,
+        firstEntry: entries[0] ? { id: entries[0].id, title: entries[0].title } : null
+      });
+      
+      // 立即验证保存是否成功
+      const verification = localStorage.getItem('journal_cache');
+      if (verification) {
+        const verificationData = JSON.parse(verification);
+        console.log('✅ Cache save verification passed:', verificationData.length);
+      } else {
+        console.error('❌ Cache save verification failed - no data found');
+      }
     } catch (error) {
       console.error('Error setting journal cache:', error);
     }
@@ -294,8 +323,25 @@ export class JournalService {
     if (typeof window === 'undefined') return;
     try {
       localStorage.removeItem('journal_cache');
+      console.log('🗑️ Journal cache cleared successfully');
     } catch (error) {
       console.error('Error clearing journal cache:', error);
+    }
+  }
+
+  // 清空所有相关的localStorage数据
+  static clearAllLocalData(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      // 清空日志缓存
+      localStorage.removeItem('journal_cache');
+      // 清空文件夹数据
+      localStorage.removeItem('journal_folders');
+      // 清空其他可能相关的缓存
+      localStorage.removeItem('journal_stats');
+      console.log('🗑️ All journal data cleared from localStorage');
+    } catch (error) {
+      console.error('Error clearing all journal data:', error);
     }
   }
 }

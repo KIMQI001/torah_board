@@ -1,7 +1,60 @@
 // API configuration and service functions for DePIN backend
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002/api/v1';
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:5002';
+import { config } from '@/config';
+
+// 动态获取API和WebSocket URL - 在运行时动态计算
+export const getApiBaseUrl = () => {
+  console.log('🔍 getApiBaseUrl 被调用');
+  
+  // 在浏览器环境中动态构建URL
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const isDev = process.env.NODE_ENV === 'development';
+    
+    console.log('🔍 浏览器环境检测:', { host, isDev });
+    
+    // 优先使用环境变量（但只有在没有注释掉的情况下）
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      console.log('🔗 使用环境变量 API_URL:', process.env.NEXT_PUBLIC_API_URL);
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    
+    // 构建基于当前主机的API URL，协议匹配前端
+    const protocol = window.location.protocol;
+    const apiProtocol = protocol === 'https:' ? 'https' : 'http';
+    const apiUrl = `${apiProtocol}://${host}:3002/api/v1`;
+    console.log('🔗 动态构建 API URL:', apiUrl, { host, protocol, apiProtocol });
+    return apiUrl;
+  }
+  
+  // 服务端默认
+  console.log('🔗 服务端默认 API URL');
+  return 'http://localhost:3002/api/v1';
+};
+
+export const getWsUrl = () => {
+  // 优先使用环境变量
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
+  
+  // 在浏览器环境中动态构建URL
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    return `ws://${host}:5002`;
+  }
+  
+  return 'ws://localhost:5002';
+};
+
+// 为了向后兼容，改为getter函数而不是常量
+// 这样每次调用时都会重新计算URL
+export const getAPI_BASE_URL = () => getApiBaseUrl();
+export const getWS_URL = () => getWsUrl();
+
+// 保持向后兼容的导出名称，但使用getter
+export { getAPI_BASE_URL as API_BASE_URL };
+export { getWS_URL as WS_URL };
 
 // Types for API responses
 export interface ApiResponse<T> {
@@ -142,7 +195,7 @@ export interface AuthResponse {
 }
 
 // Store JWT token
-let authToken: string | null = process.env.NODE_ENV === 'development' ? 'dev-token-test' : null;
+let authToken: string | null = null; // 不再使用默认开发token
 
 // Smart cache for Filecoin API data
 interface CacheItem<T> {
@@ -222,25 +275,63 @@ class SmartCache {
 
 const smartCache = new SmartCache();
 
+// 设备指纹函数（避免循环依赖）
+const getDeviceFingerprint = (): string => {
+  if (typeof window === 'undefined') return 'server';
+  
+  const fingerprint = [
+    navigator.userAgent,
+    navigator.language,
+    screen.width + 'x' + screen.height,
+    screen.colorDepth,
+    new Date().getTimezoneOffset(),
+    navigator.hardwareConcurrency || 'unknown',
+    navigator.platform
+  ].join('|');
+  
+  let hash = 0;
+  for (let i = 0; i < fingerprint.length; i++) {
+    const char = fingerprint.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  
+  return Math.abs(hash).toString(36);
+};
+
 export const setAuthToken = (token: string) => {
   authToken = token;
   if (typeof window !== 'undefined') {
-    localStorage.setItem('auth_token', token);
+    const deviceId = getDeviceFingerprint();
+    localStorage.setItem(`auth_token_${deviceId}`, token);
+    // 同时清理旧的全局token
+    localStorage.removeItem('auth_token');
   }
 };
 
 export const getAuthToken = (): string | null => {
-  // 在开发环境中，如果没有设置token，使用默认开发token
-  if (process.env.NODE_ENV === 'development' && !authToken) {
-    authToken = 'dev-token-test';
-  }
+  // 不再使用硬编码的开发token，强制要求真实的钱包连接
   
   if (authToken) return authToken;
   if (typeof window !== 'undefined') {
-    authToken = localStorage.getItem('auth_token');
-    // 如果localStorage也没有，且在开发环境中，使用默认开发token
-    if (!authToken && process.env.NODE_ENV === 'development') {
-      authToken = 'dev-token-test';
+    const deviceId = getDeviceFingerprint();
+    authToken = localStorage.getItem(`auth_token_${deviceId}`);
+    
+    // 如果设备隔离存储没有，尝试从旧的全局存储迁移
+    if (!authToken) {
+      const oldToken = localStorage.getItem('auth_token');
+      if (oldToken && !oldToken.startsWith('dev-token-')) {
+        console.log('🔄 迁移旧的auth_token到设备隔离存储');
+        setAuthToken(oldToken);
+        authToken = oldToken;
+      }
+    }
+    
+    // 清理开发模式的token
+    if (authToken === 'dev-token-test') {
+      console.log('🧹 清理开发模式token，要求真实钱包连接');
+      clearAuthToken();
+      authToken = null;
     }
   }
   return authToken;
@@ -249,6 +340,9 @@ export const getAuthToken = (): string | null => {
 export const clearAuthToken = () => {
   authToken = null;
   if (typeof window !== 'undefined') {
+    const deviceId = getDeviceFingerprint();
+    localStorage.removeItem(`auth_token_${deviceId}`);
+    // 同时清理旧的全局token
     localStorage.removeItem('auth_token');
   }
   // 清除认证token时也清除缓存
@@ -277,7 +371,7 @@ async function apiRequest<T>(
   retryCount = 0,
   maxRetries = 2
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${getApiBaseUrl()}${endpoint}`;
   const token = getAuthToken();
   
   console.log('🔐 Auth token status:', { 
@@ -302,8 +396,8 @@ async function apiRequest<T>(
   let customMaxRetries = maxRetries;
   
   if (endpoint.includes('/earnings') || endpoint.includes('/capacity')) {
-    timeout = 35000; // 收益和容量查询需要更长时间（35秒）
-    customMaxRetries = 3; // Filecoin API 需要更多重试机会
+    timeout = 60000; // 收益和容量查询需要更长时间（60秒）
+    customMaxRetries = 2; // 减少重试次数，避免总时间过长
   } else if (endpoint.includes('/dashboard/stats')) {
     timeout = 25000; // 仪表板统计需要中等时间（25秒）
     customMaxRetries = 3; // 仪表板统计也需要更多重试
@@ -486,7 +580,7 @@ async function apiRequest<T>(
 export const healthApi = {
   async checkBackend() {
     try {
-      const response = await fetch(`${API_BASE_URL.replace('/api/v1', '')}/health`, {
+      const response = await fetch(`${getApiBaseUrl().replace('/api/v1', '')}/health`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -851,10 +945,11 @@ export class DePINWebSocket {
       return;
     }
 
-    // Enable WebSocket connection in development mode too
-    console.log('Attempting WebSocket connection to:', WS_URL);
+    // 动态获取WebSocket URL
+    const dynamicWsUrl = getWsUrl();
+    console.log('Attempting WebSocket connection to:', dynamicWsUrl);
 
-    const wsUrl = `${WS_URL}?token=${this.token}`;
+    const wsUrl = `${dynamicWsUrl}?token=${this.token}`;
     
     try {
       this.ws = new WebSocket(wsUrl);
@@ -1561,7 +1656,7 @@ export const daoApi = {
     
     const query = searchParams.toString();
     // 公告API不需要认证，直接fetch
-    const url = `${API_BASE_URL}/spot/announcements${query ? '?' + query : ''}`;
+    const url = `${getApiBaseUrl()}/spot/announcements${query ? '?' + query : ''}`;
     
     const response = await fetch(url, {
       method: 'GET',
@@ -1583,7 +1678,7 @@ export const daoApi = {
 
   async getHighPriorityAnnouncements() {
     // 公告API不需要认证，直接fetch
-    const url = `${API_BASE_URL}/spot/announcements/high-priority`;
+    const url = `${getApiBaseUrl()}/spot/announcements/high-priority`;
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -1602,7 +1697,7 @@ export const daoApi = {
 
   async getTokenAnnouncements(symbol: string) {
     // 公告API不需要认证，直接fetch
-    const url = `${API_BASE_URL}/spot/announcements/token/${symbol}`;
+    const url = `${getApiBaseUrl()}/spot/announcements/token/${symbol}`;
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -1695,5 +1790,15 @@ export const daoApi = {
   }
 };
 
-// Create singleton WebSocket instance
-export const depinWebSocket = new DePINWebSocket();
+// Create singleton WebSocket instance (lazy initialization)
+let _depinWebSocket: DePINWebSocket | null = null;
+
+export const getDepinWebSocket = () => {
+  if (!_depinWebSocket && typeof window !== 'undefined') {
+    _depinWebSocket = new DePINWebSocket();
+  }
+  return _depinWebSocket;
+};
+
+// For backward compatibility
+export const depinWebSocket = typeof window !== 'undefined' ? new DePINWebSocket() : null;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { config } from '@/config';
 
 export interface WebSocketMessage {
   type: 'node_update' | 'capacity_update' | 'performance_update' | 'earnings_update' | 'system_status' | 'cex_announcements' | 'announcement_update';
@@ -33,10 +34,20 @@ export const useWebSocket = (url: string, token?: string, options?: UseWebSocket
   } = options || {};
 
   const connect = useCallback(() => {
-    if (!url || !token) return;
+    // 检查是否启用WebSocket
+    if (!config.ws.enabled) {
+      console.log('WebSocket is disabled in configuration');
+      return;
+    }
+    
+    if (!url || !token) {
+      console.log('WebSocket connection skipped: URL or token missing', { url, hasToken: !!token });
+      return;
+    }
 
     try {
       const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
+      console.log('Attempting WebSocket connection to:', url);
       const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
@@ -61,12 +72,14 @@ export const useWebSocket = (url: string, token?: string, options?: UseWebSocket
       };
 
       ws.onclose = () => {
+        console.log('WebSocket disconnected');
         setIsConnected(false);
         wsRef.current = null;
         onDisconnect?.();
         
         if (reconnect && reconnectCount.current < 5) {
           reconnectCount.current++;
+          console.log(`WebSocket reconnecting in ${reconnectInterval}ms (attempt ${reconnectCount.current}/5)`);
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
           }, reconnectInterval);
@@ -74,6 +87,7 @@ export const useWebSocket = (url: string, token?: string, options?: UseWebSocket
       };
 
       ws.onerror = (error) => {
+        console.log('WebSocket connection failed (this is normal in development without WS server)');
         setError('WebSocket connection failed');
         onError?.(error);
       };

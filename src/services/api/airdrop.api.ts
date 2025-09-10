@@ -1,4 +1,6 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002/api/v1';
+import { getApiBaseUrl } from '@/lib/api';
+
+const getApiUrl = () => getApiBaseUrl();
 
 export interface ActiveAirdrop {
   id: string;
@@ -77,7 +79,7 @@ export class AirdropAPI {
         }, {} as Record<string, string>)
       ).toString() : '';
 
-      const url = `${API_BASE_URL}/airdrop/active?${queryString}`;
+      const url = `${getApiUrl()}/airdrop/active?${queryString}`;
       console.log('Fetching airdrops from:', url);
 
       const response = await fetch(url);
@@ -112,7 +114,7 @@ export class AirdropAPI {
    * 创建活跃空投项目
    */
   static async createActiveAirdrop(data: Omit<ActiveAirdrop, 'id' | 'createdAt' | 'updatedAt'>): Promise<ActiveAirdrop> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/active`, {
+    const response = await fetch(`${getApiUrl()}/airdrop/active`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -137,7 +139,7 @@ export class AirdropAPI {
    * 更新活跃空投项目
    */
   static async updateActiveAirdrop(id: string, data: Partial<ActiveAirdrop>): Promise<ActiveAirdrop> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/active/${id}`, {
+    const response = await fetch(`${getApiUrl()}/airdrop/active/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -162,7 +164,7 @@ export class AirdropAPI {
    * 删除活跃空投项目
    */
   static async deleteActiveAirdrop(id: string): Promise<boolean> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/active/${id}`, {
+    const response = await fetch(`${getApiUrl()}/airdrop/active/${id}`, {
       method: 'DELETE',
     });
     
@@ -197,7 +199,7 @@ export class AirdropAPI {
       }, {} as Record<string, string>)
     ).toString() : '';
 
-    const response = await fetch(`${API_BASE_URL}/airdrop/user-projects?${queryString}`);
+    const response = await fetch(`${getApiUrl()}/airdrop/user-projects?${queryString}`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -225,7 +227,7 @@ export class AirdropAPI {
     status?: string;
     progressNotes?: string;
   }): Promise<UserAirdropProject> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/user-projects`, {
+    const response = await fetch(`${getApiUrl()}/airdrop/user-projects`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -250,7 +252,7 @@ export class AirdropAPI {
    * 更新用户空投项目
    */
   static async updateUserAirdropProject(id: string, data: Partial<UserAirdropProject>): Promise<UserAirdropProject> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/user-projects/${id}`, {
+    const response = await fetch(`${getApiUrl()}/airdrop/user-projects/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -275,7 +277,7 @@ export class AirdropAPI {
    * 删除用户空投项目
    */
   static async deleteUserAirdropProject(id: string): Promise<boolean> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/user-projects/${id}`, {
+    const response = await fetch(`${getApiUrl()}/airdrop/user-projects/${id}`, {
       method: 'DELETE',
     });
     
@@ -296,7 +298,7 @@ export class AirdropAPI {
    * 根据钱包地址获取用户项目
    */
   static async getUserProjectsByWallet(walletAddress: string): Promise<PaginatedResponse<UserAirdropProject>> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/wallet/${walletAddress}`);
+    const response = await fetch(`${getApiUrl()}/airdrop/wallet/${walletAddress}`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -321,7 +323,7 @@ export class AirdropAPI {
     categoryDistribution: Record<string, number>;
     lastUpdated: string;
   }> {
-    const response = await fetch(`${API_BASE_URL}/airdrop/stats`);
+    const response = await fetch(`${getApiUrl()}/airdrop/stats`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

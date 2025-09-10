@@ -24,6 +24,7 @@ import {
 import { useAnnouncements, ExchangeAnnouncement } from '@/hooks/use-spot-data';
 import { useLanguage } from '@/hooks/use-language';
 import { useWebSocket, WebSocketMessage } from '@/hooks/use-websocket';
+import { getWsUrl } from '@/lib/api';
 
 interface AnnouncementFeedProps {
   maxItems?: number;
@@ -57,10 +58,20 @@ export const AnnouncementFeed: React.FC<AnnouncementFeedProps> = ({
     lastUpdate 
   } = useAnnouncements();
 
-  // WebSocket连接
+  // 动态获取WebSocket URL
+  const [wsUrl, setWsUrl] = React.useState<string>('');
+  
+  React.useEffect(() => {
+    // 在客户端设置正确的WebSocket URL
+    const url = getWsUrl();
+    console.log('Setting WebSocket URL to:', url);
+    setWsUrl(url);
+  }, []);
+
+  // WebSocket连接 - 使用动态获取的URL
   const { isConnected: wsConnected, error: wsError } = useWebSocket(
-    'ws://localhost:5002',
-    'dummy-token', // 在实际应用中应该使用真实的JWT token
+    wsUrl,
+    wsUrl ? 'dummy-token' : '', // 只有在URL设置后才提供token
     {
       onMessage: (message: WebSocketMessage) => {
         if (message.type === 'cex_announcements') {

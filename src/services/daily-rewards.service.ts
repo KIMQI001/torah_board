@@ -2,7 +2,9 @@
  * Daily Rewards Service - 前端每日奖励服务
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002';
+import { getApiBaseUrl } from '@/lib/api';
+
+const getApiBase = () => getApiBaseUrl().replace('/api/v1', '');
 
 interface WeeklyRewards {
   totalUSD: number;
@@ -29,7 +31,7 @@ export class DailyRewardsService {
   static async getWeeklyRewards(userId: string, days: number = 7): Promise<WeeklyRewards> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/daily-rewards/weekly/${userId}?days=${days}`,
+        `${getApiBase()}/api/v1/daily-rewards/weekly/${userId}?days=${days}`,
         {
           method: 'GET',
           headers: {
@@ -56,7 +58,7 @@ export class DailyRewardsService {
   static async getRewardsHistory(userId: string, days: number = 30): Promise<DailyReward[]> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/daily-rewards/history/${userId}?days=${days}`,
+        `${getApiBase()}/api/v1/daily-rewards/history/${userId}?days=${days}`,
         {
           method: 'GET',
           headers: {
@@ -83,7 +85,7 @@ export class DailyRewardsService {
   static async triggerRecording(): Promise<{ success: boolean; message: string }> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/daily-rewards/trigger-recording`,
+        `${getApiBase()}/api/v1/daily-rewards/trigger-recording`,
         {
           method: 'POST',
           headers: {
@@ -113,7 +115,7 @@ export class DailyRewardsService {
   static async recordToday(): Promise<{ success: boolean; message: string }> {
     try {
       const response = await fetch(
-        `${API_BASE}/api/v1/daily-rewards/record-today`,
+        `${getApiBase()}/api/v1/daily-rewards/record-today`,
         {
           method: 'POST',
           headers: {
