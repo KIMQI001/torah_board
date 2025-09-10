@@ -10,42 +10,48 @@ export function useJournal() {
   const [stats, setStats] = useState<JournalStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const { error: showError, success: showSuccess } = useToast()
+  const [currentWalletAddress, setCurrentWalletAddress] = useState<string | null>(null)
+  
+  // 从user对象中获取钱包地址
+  const walletAddress = user?.walletAddress || null
 
   // Load entries from API or local cache
   const loadEntries = useCallback(async () => {
     setIsLoading(true)
-    console.log('📖 Loading entries, auth status:', { isAuthenticated })
+    console.log('📖 Loading entries, auth status:', { isAuthenticated, walletAddress })
     
     try {
-      // 先尝试从本地缓存加载，确保用户体验
-      const cachedEntries = JournalService.getLocalCache()
-      console.log('📖 Found cached entries:', cachedEntries.length)
-      setEntries(cachedEntries)
-      
-      // 由于API服务已停止，直接使用本地缓存
-      console.log('📖 Using cached entries only (API服务已停止):', cachedEntries.length)
-      console.log('📖 Cache raw data size:', localStorage.getItem('journal_cache')?.length || 0)
-      if (cachedEntries.length > 0) {
-        console.log('📖 First entry content length:', cachedEntries[0]?.content?.length || 0)
-        console.log('📖 First entry details:', {
-          id: cachedEntries[0].id,
-          title: cachedEntries[0].title,
-          createdAt: cachedEntries[0].createdAt,
-          folderId: cachedEntries[0].folderId
-        })
+      // 在开发环境总是尝试从API加载，不管认证状态
+      if (isAuthenticated || process.env.NODE_ENV === 'development') {
+        console.log('📖 Fetching from server...')
+        const result = await JournalService.getEntries()
+        console.log('📖 Server data loaded:', result.entries.length)
+        
+        setEntries(result.entries)
+        // 更新本地缓存
+        JournalService.setLocalCache(result.entries)
+        
+        console.log('📖 Successfully loaded from server and updated cache')
+      } else {
+        // 未认证时使用本地缓存
+        console.log('📖 Not authenticated, loading from cache...')
+        const cachedEntries = JournalService.getLocalCache()
+        console.log('📖 Found cached entries:', cachedEntries.length)
+        setEntries(cachedEntries)
       }
     } catch (error) {
       console.error('Failed to load journal entries:', error)
       // Fallback to local cache on error
       const cachedEntries = JournalService.getLocalCache()
       setEntries(cachedEntries)
-      showError('加载失败', '无法从服务器加载数据，使用本地缓存')
+      console.log('📖 Fallback to cache due to error:', cachedEntries.length)
+      showError('服务器连接失败', '已切换到本地缓存数据')
     } finally {
       setIsLoading(false)
     }
-  }, [isAuthenticated, showError])
+  }, [isAuthenticated, walletAddress, showError])
 
   // Load stats
   const loadStats = useCallback(async () => {
@@ -58,31 +64,55 @@ export function useJournal() {
     }
   }, [isAuthenticated])
 
-  // Initial load
+  // 钱包地址变化检测和数据清理
   useEffect(() => {
-    console.log('📖 useJournal: Initial load effect triggered')
-    console.log('📖 useJournal: Current localStorage content:', localStorage.getItem('journal_cache')?.length || 0, 'bytes')
-    
-    // 一次性清空旧数据（仅在第一次加载时）
-    const shouldClearData = localStorage.getItem('journal_data_cleared') !== 'true'
-    if (shouldClearData) {
-      console.log('🗑️ First time loading - clearing all old journal data...')
+    console.log('🔑 Wallet address changed:', { 
+      previous: currentWalletAddress, 
+      current: walletAddress,
+      isAuthenticated 
+    });
+
+    // 检查钱包地址是否发生变化
+    if (currentWalletAddress && currentWalletAddress !== walletAddress) {
+      console.log('🔄 Wallet address changed, clearing previous user data...')
+      // 钱包地址发生变化，清理前一个用户的数据
       JournalService.clearAllLocalData()
       setEntries([])
       setStats(null)
-      
-      // 强制清空localStorage中可能的其他键
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('journal') || key.includes('Journal')) {
-          localStorage.removeItem(key)
-          console.log('🗑️ Removed localStorage key:', key)
-        }
-      })
-      
-      localStorage.setItem('journal_data_cleared', 'true')
-      console.log('✅ Old data cleared, marked as completed')
     }
     
+    // 更新当前钱包地址状态
+    setCurrentWalletAddress(walletAddress)
+    
+    // 更新localStorage中的钱包地址（用于API认证）
+    if (typeof window !== 'undefined') {
+      if (walletAddress) {
+        localStorage.setItem('wallet_address', walletAddress)
+      } else {
+        localStorage.removeItem('wallet_address')
+      }
+    }
+  }, [walletAddress, currentWalletAddress])
+
+  // 钱包断开时清理数据
+  useEffect(() => {
+    if (!isAuthenticated && currentWalletAddress) {
+      console.log('👋 Wallet disconnected, clearing all journal data...')
+      JournalService.clearAllLocalData()
+      setEntries([])
+      setStats(null)
+      setCurrentWalletAddress(null)
+      
+      // 移除认证信息
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('wallet_address')
+      }
+    }
+  }, [isAuthenticated, currentWalletAddress])
+
+  // Initial load
+  useEffect(() => {
+    console.log('📖 useJournal: Initial load effect triggered')
     loadEntries()
     loadStats()
   }, [loadEntries, loadStats])
@@ -152,32 +182,37 @@ export function useJournal() {
       })
       console.log('📝 Authentication status:', { isAuthenticated, entriesCount: entries.length })
       
-      // 由于API服务已停止，直接保存到本地存储
-      const newEntry: JournalEntry = {
-        ...entryData,
-        id: Date.now().toString(),
-        walletAddress: 'local',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        excerpt: entryData.content.slice(0, 150) + (entryData.content.length > 150 ? '...' : ''),
-        isPublic: false,
-        folderId: entryData.folderId // 确保folderId被保留
+      let newEntry: JournalEntry
+      
+      if (isAuthenticated || process.env.NODE_ENV === 'development') {
+        // 优先保存到服务器
+        console.log('📝 Saving to server...')
+        newEntry = await JournalService.createEntry(entryData)
+        console.log('📝 Server save successful:', newEntry.id)
+      } else {
+        // 未认证时保存到本地存储
+        console.log('📝 Not authenticated, saving to local storage...')
+        newEntry = {
+          ...entryData,
+          id: Date.now().toString(),
+          walletAddress: 'local',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          excerpt: entryData.content.slice(0, 150) + (entryData.content.length > 150 ? '...' : ''),
+          isPublic: false,
+          folderId: entryData.folderId
+        }
       }
       
+      // 更新本地状态和缓存
       const updatedEntries = [newEntry, ...entries]
-      console.log('💾 Saving to localStorage:', {
-        newEntryId: newEntry.id,
-        newEntryTitle: newEntry.title,
-        newEntryFolderId: newEntry.folderId,
-        totalEntriesAfter: updatedEntries.length
-      })
-      
       setEntries(updatedEntries)
       JournalService.setLocalCache(updatedEntries)
       
-      console.log('💾 Save completed, verification:', {
-        stateLength: updatedEntries.length,
-        cacheLength: JournalService.getLocalCache().length
+      console.log('📝 Entry added successfully:', {
+        id: newEntry.id,
+        title: newEntry.title,
+        source: isAuthenticated ? 'server' : 'local'
       })
       
       return newEntry
@@ -194,7 +229,14 @@ export function useJournal() {
     try {
       setIsSyncing(true)
       
-      // 直接更新本地缓存
+      if (isAuthenticated || process.env.NODE_ENV === 'development') {
+        // 优先更新到服务器
+        console.log('🔄 Updating entry on server:', id)
+        await JournalService.updateEntry(id, entryData)
+        console.log('🔄 Server update successful')
+      }
+      
+      // 更新本地状态和缓存
       const updatedEntries = entries.map(entry => 
         entry.id === id 
           ? {
@@ -209,7 +251,11 @@ export function useJournal() {
       )
       setEntries(updatedEntries)
       JournalService.setLocalCache(updatedEntries)
-      console.log('💾 Updated entry in localStorage:', id)
+      
+      console.log('🔄 Entry updated successfully:', {
+        id,
+        source: isAuthenticated ? 'server' : 'local'
+      })
     } catch (error) {
       console.error('Failed to update journal entry:', error)
       showError('更新失败', error.message || '无法更新日志条目')
@@ -223,11 +269,22 @@ export function useJournal() {
     try {
       setIsSyncing(true)
       
-      // 直接从本地缓存删除
+      if (isAuthenticated || process.env.NODE_ENV === 'development') {
+        // 优先从服务器删除
+        console.log('🗑️ Deleting entry from server:', id)
+        await JournalService.deleteEntry(id)
+        console.log('🗑️ Server deletion successful')
+      }
+      
+      // 从本地状态和缓存删除
       const updatedEntries = entries.filter(entry => entry.id !== id)
       setEntries(updatedEntries)
       JournalService.setLocalCache(updatedEntries)
-      console.log('💾 Deleted entry from localStorage:', id)
+      
+      console.log('🗑️ Entry deleted successfully:', {
+        id,
+        source: isAuthenticated ? 'server' : 'local'
+      })
     } catch (error) {
       console.error('Failed to delete journal entry:', error)
       showError('删除失败', error.message || '无法删除日志条目')

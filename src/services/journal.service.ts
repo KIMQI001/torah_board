@@ -2,7 +2,21 @@
  * 交易日志服务 - 前端与后端API交互
  */
 
-import { getAuthToken, getApiBaseUrl } from '@/lib/api';
+// Journal API uses Next.js API routes, not the backend server
+const getJournalApiBase = () => {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api`;
+  }
+  return '/api';
+};
+
+// Simple auth token management for journal service
+const getJournalAuthToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('wallet_address') || null;
+  }
+  return null;
+};
 
 export interface JournalEntry {
   id: string;
@@ -39,10 +53,10 @@ export interface JournalStats {
 
 export class JournalService {
   private static getHeaders(): HeadersInit {
-    const token = getAuthToken();
+    const walletAddress = getJournalAuthToken();
     return {
       'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` })
+      ...(walletAddress && { 'X-Wallet-Address': walletAddress })
     };
   }
 
@@ -68,7 +82,7 @@ export class JournalService {
       }
 
       const response = await fetch(
-        `${getApiBaseUrl()}/journal/entries?${queryParams}`,
+        `${getJournalApiBase()}/journal/entries?${queryParams}`,
         {
           method: 'GET',
           headers: this.getHeaders()
@@ -93,7 +107,7 @@ export class JournalService {
   static async getEntry(id: string): Promise<JournalEntry | null> {
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/journal/entries/${id}`,
+        `${getJournalApiBase()}/journal/entries/${id}`,
         {
           method: 'GET',
           headers: this.getHeaders()
@@ -119,7 +133,7 @@ export class JournalService {
   static async createEntry(data: Omit<JournalEntry, 'id' | 'walletAddress' | 'userId' | 'createdAt' | 'updatedAt' | 'excerpt'>): Promise<JournalEntry> {
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/journal/entries`,
+        `${getJournalApiBase()}/journal/entries`,
         {
           method: 'POST',
           headers: this.getHeaders(),
@@ -146,7 +160,7 @@ export class JournalService {
   static async updateEntry(id: string, data: Partial<Omit<JournalEntry, 'id' | 'walletAddress' | 'userId' | 'createdAt' | 'updatedAt'>>): Promise<JournalEntry> {
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/journal/entries/${id}`,
+        `${getJournalApiBase()}/journal/entries/${id}`,
         {
           method: 'PUT',
           headers: this.getHeaders(),
@@ -173,7 +187,7 @@ export class JournalService {
   static async deleteEntry(id: string): Promise<boolean> {
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/journal/entries/${id}`,
+        `${getJournalApiBase()}/journal/entries/${id}`,
         {
           method: 'DELETE',
           headers: this.getHeaders()
@@ -197,7 +211,7 @@ export class JournalService {
   static async getStats(): Promise<JournalStats> {
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/journal/stats`,
+        `${getJournalApiBase()}/journal/stats`,
         {
           method: 'GET',
           headers: this.getHeaders()
@@ -222,7 +236,7 @@ export class JournalService {
   static async exportEntries(): Promise<JournalEntry[]> {
     try {
       const response = await fetch(
-        `${getApiBaseUrl()}/journal/export`,
+        `${getJournalApiBase()}/journal/export`,
         {
           method: 'GET',
           headers: this.getHeaders()
@@ -267,15 +281,29 @@ export class JournalService {
   }
 
   /**
-   * 本地存储缓存（用于离线支持）
+   * 获取钱包地址特定的缓存键名
+   */
+  private static getCacheKey(key: string): string {
+    const walletAddress = getJournalAuthToken();
+    if (walletAddress) {
+      return `${key}_${walletAddress.slice(-8)}`;
+    }
+    return key;
+  }
+
+  /**
+   * 本地存储缓存（用于离线支持，按钱包地址隔离）
    */
   static getLocalCache(): JournalEntry[] {
     if (typeof window === 'undefined') return [];
     try {
-      const cached = localStorage.getItem('journal_cache');
+      const cacheKey = this.getCacheKey('journal_cache');
+      const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const entries = JSON.parse(cached);
         console.log('📖 Cache loaded:', {
+          walletAddress: getJournalAuthToken(),
+          cacheKey,
           entryCount: entries.length,
           dataSize: cached.length,
           firstEntry: entries[0] ? { id: entries[0].id, title: entries[0].title, createdAt: entries[0].createdAt } : null,
@@ -283,7 +311,7 @@ export class JournalService {
         });
         return entries;
       } else {
-        console.log('📖 No cache found');
+        console.log('📖 No cache found for key:', cacheKey);
         return [];
       }
     } catch (error) {
@@ -295,16 +323,19 @@ export class JournalService {
   static setLocalCache(entries: JournalEntry[]): void {
     if (typeof window === 'undefined') return;
     try {
+      const cacheKey = this.getCacheKey('journal_cache');
       const dataString = JSON.stringify(entries);
-      localStorage.setItem('journal_cache', dataString);
+      localStorage.setItem(cacheKey, dataString);
       console.log('💾 Cache saved:', {
+        walletAddress: getJournalAuthToken(),
+        cacheKey,
         entryCount: entries.length,
         dataSize: dataString.length,
         firstEntry: entries[0] ? { id: entries[0].id, title: entries[0].title } : null
       });
       
       // 立即验证保存是否成功
-      const verification = localStorage.getItem('journal_cache');
+      const verification = localStorage.getItem(cacheKey);
       if (verification) {
         const verificationData = JSON.parse(verification);
         console.log('✅ Cache save verification passed:', verificationData.length);
@@ -319,26 +350,52 @@ export class JournalService {
   static clearLocalCache(): void {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.removeItem('journal_cache');
-      console.log('🗑️ Journal cache cleared successfully');
+      const cacheKey = this.getCacheKey('journal_cache');
+      localStorage.removeItem(cacheKey);
+      console.log('🗑️ Journal cache cleared successfully for key:', cacheKey);
     } catch (error) {
       console.error('Error clearing journal cache:', error);
     }
   }
 
-  // 清空所有相关的localStorage数据
+  // 清空所有相关的localStorage数据（只清理当前钱包地址的数据）
   static clearAllLocalData(): void {
     if (typeof window === 'undefined') return;
     try {
-      // 清空日志缓存
-      localStorage.removeItem('journal_cache');
-      // 清空文件夹数据
-      localStorage.removeItem('journal_folders');
-      // 清空其他可能相关的缓存
-      localStorage.removeItem('journal_stats');
-      console.log('🗑️ All journal data cleared from localStorage');
+      const walletAddress = getJournalAuthToken();
+      const suffix = walletAddress ? `_${walletAddress.slice(-8)}` : '';
+      
+      // 清空当前钱包地址的所有日志相关数据
+      const keysToRemove = [
+        `journal_cache${suffix}`,
+        `journal_folders${suffix}`,
+        `journal_stats${suffix}`
+      ];
+      
+      keysToRemove.forEach(key => {
+        localStorage.removeItem(key);
+        console.log('🗑️ Removed localStorage key:', key);
+      });
+      
+      console.log('🗑️ All journal data cleared from localStorage for wallet:', walletAddress || 'anonymous');
     } catch (error) {
       console.error('Error clearing all journal data:', error);
+    }
+  }
+
+  // 清理所有钱包的journal数据（用于全局重置）
+  static clearAllWalletsData(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('journal_cache') || key.includes('journal_folders') || key.includes('journal_stats')) {
+          localStorage.removeItem(key);
+          console.log('🗑️ Removed localStorage key:', key);
+        }
+      });
+      console.log('🗑️ All journal data cleared for all wallets');
+    } catch (error) {
+      console.error('Error clearing all wallets journal data:', error);
     }
   }
 }

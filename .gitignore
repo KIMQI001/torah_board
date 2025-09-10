@@ -60,3 +60,7 @@ backend/*.log
 # Database files
 backend/prisma/dev.db
 backend/prisma/dev.db-journal
+
+# Journal data storage
+/data
+data/
