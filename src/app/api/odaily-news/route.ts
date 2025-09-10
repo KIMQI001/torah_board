@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { odailyFetcher, OdailyNewsItem } from '@/services/odaily-fetcher';
+import { odailyFetcher, OdailyNewsItem } from '../../../services/odaily-fetcher';
 
 // 现在使用专门的 Odaily 服务来获取实时数据
 // 服务包含自动缓存、定时更新和真实数据获取功能
